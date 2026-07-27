@@ -1,0 +1,11 @@
+build/bin
+node_modules
+frontend/dist
+
+# Build outputs
+dist/
+/mellowtel-consumer
+/mellowtel-consumer.exe
+
+# Local logs / scratch
+*.log
