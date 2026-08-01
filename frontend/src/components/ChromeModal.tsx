@@ -16,15 +16,15 @@ export default function ChromeModal({ onClose }: Props) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal chrome" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h2>Chrome required</h2>
+          <h2>Chrome or Brave required</h2>
           <button className="icon-btn" onClick={onClose}>
             ✕
           </button>
         </div>
         <div className="modal-body">
           <p>
-            Mellowtel uses your installed Google Chrome to complete rendering jobs and earn.
-            We couldn't find Chrome on this machine.
+            Mellowtel uses your installed Google Chrome, Brave, or Chromium to complete
+            rendering jobs and earn. We couldn't find a supported browser on this machine.
           </p>
           <p className="hint">
             Simple fetch-only jobs may still run, but installing Chrome unlocks full earning.

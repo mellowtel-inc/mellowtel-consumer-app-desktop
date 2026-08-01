@@ -41,7 +41,7 @@ executor path. Run `make test`.
   on first build. Nothing to do manually.
 - **Node.js 18+** and npm (for the frontend).
 - **Wails v2 CLI:** `go install github.com/wailsapp/wails/v2/cmd/wails@v2.10.1`
-- **Google Chrome or Chromium** installed (runtime requirement for browser jobs).
+- **Google Chrome, Brave, or Chromium** installed (runtime requirement for browser jobs).
 
 ### Linux GUI system libraries (required for `wails dev` / `wails build`)
 
@@ -170,7 +170,7 @@ single architecture use `darwin/arm64` (Apple Silicon) or `darwin/amd64` (Intel)
   on macOS it may not appear. The window, jobs, and everything else work
   normally. Proper macOS tray support needs restructuring `main.go` to run
   `systray.Run` on the main thread — a known MVP limitation.
-- **Chrome** is auto-detected at `/Applications/Google Chrome.app/...`.
+- **Chrome or Brave** is auto-detected from its standard `/Applications` location.
 - **Launch on startup** installs a LaunchAgent at
   `~/Library/LaunchAgents/tel.mellow.consumer.plist`.
 

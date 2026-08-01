@@ -18,24 +18,32 @@ func candidatePaths() []string {
 		var paths []string
 		for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "LocalAppData"} {
 			if base := os.Getenv(env); base != "" {
-				paths = append(paths, filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"))
+				paths = append(paths,
+					filepath.Join(base, "Google", "Chrome", "Application", "chrome.exe"),
+					filepath.Join(base, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+				)
 			}
 		}
 		return paths
 	case "darwin":
 		return []string{
 			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
 			"/Applications/Chromium.app/Contents/MacOS/Chromium",
 			filepath.Join(os.Getenv("HOME"), "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+			filepath.Join(os.Getenv("HOME"), "Applications/Brave Browser.app/Contents/MacOS/Brave Browser"),
 		}
 	default: // linux and friends
 		return []string{
 			"/usr/bin/google-chrome",
 			"/usr/bin/google-chrome-stable",
+			"/usr/bin/brave-browser",
+			"/usr/bin/brave-browser-stable",
 			"/usr/bin/chromium",
 			"/usr/bin/chromium-browser",
 			"/snap/bin/chromium",
 			"/opt/google/chrome/chrome",
+			"/opt/brave.com/brave/brave-browser",
 		}
 	}
 }
@@ -45,10 +53,17 @@ func pathNames() []string {
 	if runtime.GOOS == "windows" {
 		return []string{"chrome.exe"}
 	}
-	return []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser"}
+	return []string{
+		"google-chrome",
+		"google-chrome-stable",
+		"brave-browser",
+		"brave-browser-stable",
+		"chromium",
+		"chromium-browser",
+	}
 }
 
-// FindChrome locates an installed Chrome/Chromium executable. It returns the
+// FindChrome locates an installed Chrome/Chromium-based executable. It returns the
 // absolute path and true if found.
 func FindChrome() (string, bool) {
 	for _, p := range candidatePaths() {
