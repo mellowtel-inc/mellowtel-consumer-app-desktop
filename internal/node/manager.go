@@ -214,6 +214,14 @@ func (m *Manager) Connect() error {
 	m.mu.Unlock()
 
 	m.log.Info().Msg("connecting node")
+	// Publish the user's intent before any browser, WebSocket, or approval
+	// goroutine starts. Those goroutines can emit immediately; if Paused is
+	// cleared later, an early "connecting" event briefly renders the UI as off.
+	m.emit(func(s *Status) {
+		s.Connection = string(wsclient.StateConnecting)
+		s.Paused = false
+		s.Detail = "Connecting…"
+	})
 
 	// Start the browser engine if Chrome is available. Failure is non-fatal:
 	// jobs fall back to the simple fetch path.
@@ -273,7 +281,6 @@ func (m *Manager) Connect() error {
 		checker.Run(ctx, m.onApproval)
 	}()
 
-	m.emit(func(s *Status) { s.Paused = false })
 	return nil
 }
 
