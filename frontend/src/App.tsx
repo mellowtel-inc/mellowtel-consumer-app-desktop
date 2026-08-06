@@ -119,9 +119,9 @@ export default function App() {
       <main className="main">
         <section className="earnings">
           <div className="earnings-label">Total earned</div>
-          <div className="earnings-value">{formatPoints(status.totalEarnedUsd)}</div>
+          <div className="earnings-value">{formatPoints(status.totalJobsCompleted)}</div>
           <div className="earnings-session">
-            + {formatPoints(status.sessionEarnedUsd)} this session
+            + {formatPoints(status.jobsCompleted)} this session
           </div>
         </section>
 
