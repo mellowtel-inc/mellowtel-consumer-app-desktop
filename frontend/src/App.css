@@ -733,10 +733,11 @@
   object-fit: contain;
   filter: drop-shadow(0 20px 22px rgba(24, 33, 42, .13));
   transform: translateX(-50%);
-  transition: filter .4s ease;
+  transition: opacity .24s ease;
 }
 .sharing-stage.active .dashboard-mascot {
-  filter: drop-shadow(0 22px 25px rgba(49, 94, 251, .2));
+  opacity: 1;
+  filter: saturate(1.32) contrast(1.04) brightness(1.03) drop-shadow(0 22px 25px rgba(49, 94, 251, .2));
   animation: mascot-breathe 3.4s ease-in-out infinite;
 }
 .sharing-stage.paused .dashboard-mascot {

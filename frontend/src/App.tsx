@@ -137,6 +137,7 @@ export default function App() {
             ))}
           </div>
           <img
+            key={active ? 'active-mascot' : 'paused-mascot'}
             className="dashboard-mascot"
             src={active ? earnbearCoinPresenter : earnbearPausedSad}
             alt={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
