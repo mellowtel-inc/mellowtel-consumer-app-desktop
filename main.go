@@ -51,13 +51,13 @@ func main() {
 	app.tray.Start()
 
 	err = wails.Run(&options.App{
-		Title:             "Mellowtel",
+		Title:             "Earnbear",
 		Width:             430,
 		Height:            700,
 		MinWidth:          390,
 		MinHeight:         620,
 		DisableResize:     false,
-		BackgroundColour:  &options.RGBA{R: 15, G: 23, B: 42, A: 1},
+		BackgroundColour:  &options.RGBA{R: 248, G: 250, B: 252, A: 1},
 		AssetServer:       &assetserver.Options{Assets: assets},
 		OnStartup:         app.startup,
 		OnShutdown:        app.shutdown,
@@ -67,12 +67,12 @@ func main() {
 			app,
 		},
 		Linux: &linux.Options{
-			ProgramName: "Mellowtel",
+			ProgramName: "Earnbear",
 		},
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarHiddenInset(),
 			About: &mac.AboutInfo{
-				Title:   "Mellowtel",
+				Title:   "Earnbear",
 				Message: "Consensual bandwidth sharing. Version " + config.AppVersion,
 			},
 		},

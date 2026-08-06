@@ -60,6 +60,9 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	log.Info().Msg("shutting down")
 	a.manager.Disconnect()
+	if a.tray != nil {
+		a.tray.Quit()
+	}
 	if a.logCloser != nil {
 		a.logCloser.Close()
 	}
@@ -92,7 +95,7 @@ func (a *App) Disconnect() {
 // Toggle flips connection state and returns the resulting connected flag.
 func (a *App) Toggle() bool {
 	if a.manager.IsConnected() {
-		a.manager.Disconnect()
+		a.manager.DisconnectAsync()
 		return false
 	}
 	if err := a.manager.Connect(); err != nil {

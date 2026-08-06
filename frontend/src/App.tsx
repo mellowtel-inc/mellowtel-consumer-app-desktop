@@ -4,12 +4,17 @@ import {
   API,
   onStatus,
   onChromeMissing,
-  formatUSD,
+  formatPoints,
   formatCount,
   Status,
 } from './api';
 import SettingsScreen from './components/SettingsScreen';
 import ChromeModal from './components/ChromeModal';
+import OnboardingFlow from './components/OnboardingFlow';
+import earnbearMark from '../../../public/brand/earnbear-mark.png';
+import earnbearCoinPresenter from '../../../public/mascot-cutouts/earnbear-coin-presenter.png';
+import earnbearPausedSad from '../../../public/mascot-cutouts/earnbear-paused-sad.png';
+import earnbearToken from '../../../public/brand/earnbear-token.png';
 
 const EMPTY_STATUS: Status = {
   connection: 'disconnected',
@@ -35,6 +40,9 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [chromeMissing, setChromeMissing] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => window.localStorage.getItem('earnbear-onboarding-complete') !== 'true'
+  );
 
   useEffect(() => {
     API.getStatus().then(setStatus).catch(() => {});
@@ -53,11 +61,17 @@ export default function App() {
     };
   }, []);
 
-  const connected = status.connection === 'connected';
-  const connecting = status.connection === 'connecting';
+  // Treat sharing as active as soon as the user taps connect. The native
+  // connection can continue in the background without making the button
+  // visibly step through a second, laggy-looking state.
+  const active = !status.paused;
 
   const toggle = useCallback(async () => {
     setBusy(true);
+    setStatus((current) => active
+      ? { ...current, connection: 'disconnected', paused: true, detail: 'Paused — tap to start again.' }
+      : { ...current, connection: 'connecting', paused: false, detail: 'Earnbear is active.' }
+    );
     try {
       await API.toggle();
       setStatus(await API.getStatus());
@@ -66,7 +80,12 @@ export default function App() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [active]);
+
+  const finishOnboarding = () => {
+    window.localStorage.setItem('earnbear-onboarding-complete', 'true');
+    setShowOnboarding(false);
+  };
 
   if (showSettings) {
     return (
@@ -74,7 +93,10 @@ export default function App() {
     );
   }
 
-  const buttonLabel = connecting ? 'Connecting' : connected ? 'Connected' : 'Paused';
+  const buttonLabel = active ? 'Connected' : 'Paused';
+  const statusDetail = active
+    ? (status.connection === 'connected' ? status.detail : 'Earnbear is active.')
+    : 'Paused — tap to start again.';
   const successLabel =
     status.totalJobsCompleted + status.totalJobsFailed > 0
       ? `${status.successRate.toFixed(1)}%`
@@ -84,8 +106,10 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="brand">
-          <span className="logo-mark" />
-          <span className="brand-name">Mellowtel</span>
+          <span className="logo-mark">
+            <img src={earnbearMark} alt="" />
+          </span>
+          <span className="brand-name">earnbear.app</span>
         </div>
         <button className="icon-btn" title="Settings" onClick={() => setShowSettings(true)}>
           <GearIcon />
@@ -95,25 +119,42 @@ export default function App() {
       <main className="main">
         <section className="earnings">
           <div className="earnings-label">Total earned</div>
-          <div className="earnings-value">{formatUSD(status.totalEarnedUsd)}</div>
+          <div className="earnings-value">{formatPoints(status.totalEarnedUsd)}</div>
           <div className="earnings-session">
-            + {formatUSD(status.sessionEarnedUsd)} this session
+            + {formatPoints(status.sessionEarnedUsd)} this session
           </div>
         </section>
 
-        <button
-          className={`power ${connected ? 'on' : connecting ? 'connecting' : 'off'}`}
-          onClick={toggle}
-          disabled={busy || connecting}
-          aria-label={connected ? 'Pause sharing' : 'Start sharing'}
-        >
-          <PowerIcon />
-          <span className="power-label">{buttonLabel}</span>
-        </button>
+        <div className={`sharing-stage ${active ? 'active' : 'paused'}`}>
+          <div className="coin-stream" aria-hidden="true">
+            {Array.from({ length: 7 }, (_, index) => (
+              <img
+                key={index}
+                className={`stream-coin stream-coin-${index + 1}`}
+                src={earnbearToken}
+                alt=""
+              />
+            ))}
+          </div>
+          <img
+            className="dashboard-mascot"
+            src={active ? earnbearCoinPresenter : earnbearPausedSad}
+            alt={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
+          />
+          <button
+            className={`power ${active ? 'on' : 'off'}`}
+            onClick={toggle}
+            disabled={busy}
+            aria-label={active ? 'Pause sharing' : 'Start sharing'}
+          >
+            <PowerIcon />
+            <span className="power-label">{buttonLabel}</span>
+          </button>
+        </div>
 
         <div className="status-line">
           <span className={`status-dot ${status.connection}`} />
-          <span>{status.detail}</span>
+          <span>{statusDetail}</span>
         </div>
 
         {!status.chromeFound && (
@@ -146,6 +187,7 @@ export default function App() {
       </main>
 
       {chromeMissing && <ChromeModal onClose={() => setChromeMissing(false)} />}
+      {showOnboarding && <OnboardingFlow onComplete={finishOnboarding} />}
     </div>
   );
 }

@@ -23,7 +23,7 @@ export default function ChromeModal({ onClose }: Props) {
         </div>
         <div className="modal-body">
           <p>
-            Mellowtel uses your installed Google Chrome, Brave, or Chromium to complete
+            Earnbear uses your installed Google Chrome, Brave, or Chromium to complete
             rendering jobs and earn. We couldn't find a supported browser on this machine.
           </p>
           <p className="hint">

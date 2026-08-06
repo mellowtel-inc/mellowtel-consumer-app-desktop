@@ -133,12 +133,12 @@ export function copyText(text: string): void {
   }
 }
 
-// formatUSD renders a dollar amount for the earnings headline.
-export function formatUSD(n: number): string {
-  return `$${(n || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
+// formatPoints renders the Earnbear rewards balance without a currency symbol.
+export function formatPoints(n: number): string {
+  return `${(n || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
-  })}`;
+  })} points`;
 }
 
 // formatCount renders large job counts with thousands separators.

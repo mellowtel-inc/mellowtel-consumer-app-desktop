@@ -4,6 +4,7 @@
 package tray
 
 import (
+	"runtime"
 	"sync"
 
 	"fyne.io/systray"
@@ -25,6 +26,7 @@ type Tray struct {
 	mu        sync.Mutex
 	ready     bool
 	connected bool
+	endLoop   func()
 
 	mShow   *systray.MenuItem
 	mToggle *systray.MenuItem
@@ -36,10 +38,20 @@ func New(log zerolog.Logger, cb Callbacks) *Tray {
 	return &Tray{log: log.With().Str("component", "tray").Logger(), cb: cb}
 }
 
-// Start launches the tray. systray.Run blocks, so it runs in its own goroutine.
-// On macOS the tray must own the main thread; there this may be a no-op and the
-// app still functions via its window.
+// Start prepares the tray. On macOS Wails owns the Cocoa main loop, so systray
+// is attached through its external-loop API before Wails takes over that loop.
 func (t *Tray) Start() {
+	if runtime.GOOS == "darwin" {
+		start, end := systray.RunWithExternalLoop(t.onReady, t.onExit)
+		t.mu.Lock()
+		t.endLoop = end
+		t.mu.Unlock()
+		// Start is called from main before Wails.Run, which is the only safe
+		// point to create AppKit status-bar objects on macOS.
+		start()
+		return
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -51,14 +63,14 @@ func (t *Tray) Start() {
 }
 
 func (t *Tray) onReady() {
-	systray.SetTitle("Mellowtel")
-	systray.SetTooltip("Mellowtel — Paused")
+	systray.SetTitle("Earnbear")
+	systray.SetTooltip("Earnbear — Paused")
 	systray.SetIcon(iconPaused)
 
-	t.mShow = systray.AddMenuItem("Show", "Show the Mellowtel window")
+	t.mShow = systray.AddMenuItem("Show", "Show the Earnbear window")
 	t.mToggle = systray.AddMenuItem("Connect", "Start or pause sharing")
 	systray.AddSeparator()
-	t.mQuit = systray.AddMenuItem("Quit", "Quit Mellowtel")
+	t.mQuit = systray.AddMenuItem("Quit", "Quit Earnbear")
 
 	t.mu.Lock()
 	t.ready = true
@@ -90,6 +102,9 @@ func (t *Tray) loop() {
 }
 
 func (t *Tray) onExit() {
+	t.mu.Lock()
+	t.ready = false
+	t.mu.Unlock()
 	t.log.Debug().Msg("tray exited")
 }
 
@@ -108,13 +123,13 @@ func (t *Tray) SetConnected(connected bool) {
 func (t *Tray) applyState(connected bool) {
 	if connected {
 		systray.SetIcon(iconConnected)
-		systray.SetTooltip("Mellowtel — Connected")
+		systray.SetTooltip("Earnbear — Connected")
 		if t.mToggle != nil {
 			t.mToggle.SetTitle("Pause")
 		}
 	} else {
 		systray.SetIcon(iconPaused)
-		systray.SetTooltip("Mellowtel — Paused")
+		systray.SetTooltip("Earnbear — Paused")
 		if t.mToggle != nil {
 			t.mToggle.SetTitle("Connect")
 		}
@@ -125,8 +140,11 @@ func (t *Tray) applyState(connected bool) {
 func (t *Tray) Quit() {
 	t.mu.Lock()
 	ready := t.ready
+	end := t.endLoop
 	t.mu.Unlock()
-	if ready {
+	if end != nil {
+		end()
+	} else if ready {
 		systray.Quit()
 	}
 }

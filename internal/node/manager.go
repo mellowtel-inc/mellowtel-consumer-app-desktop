@@ -92,6 +92,8 @@ type Manager struct {
 	bw        *bandwidthTracker
 	wg        sync.WaitGroup
 	connected bool
+	stopping  bool
+	stopDone  chan struct{}
 
 	// workerGen lets the pool be resized live: workers exit once their
 	// generation is superseded, and a fresh set is spawned at the new size.
@@ -185,17 +187,30 @@ func (m *Manager) emit(mutate func(*Status)) {
 // Connect starts the node: browser engine, worker pool, WebSocket and approval
 // polling. It is idempotent.
 func (m *Manager) Connect() error {
-	m.mu.Lock()
-	if m.connected {
+	for {
+		m.mu.Lock()
+		if m.connected {
+			m.mu.Unlock()
+			return nil
+		}
+		if m.stopping {
+			stopDone := m.stopDone
+			m.mu.Unlock()
+			<-stopDone
+			continue
+		}
+		m.connected = true
+		ctx, cancel := context.WithCancel(context.Background())
+		m.runCtx = ctx
+		m.runCancel = cancel
+		m.jobQueue = make(chan *job.Request, jobQueueSize)
+		m.bw.setCap(m.cfg.Settings.BandwidthCap.BytesPerDay())
 		m.mu.Unlock()
-		return nil
+		break
 	}
-	m.connected = true
-	ctx, cancel := context.WithCancel(context.Background())
-	m.runCtx = ctx
-	m.runCancel = cancel
-	m.jobQueue = make(chan *job.Request, jobQueueSize)
-	m.bw.setCap(m.cfg.Settings.BandwidthCap.BytesPerDay())
+
+	m.mu.Lock()
+	ctx := m.runCtx
 	m.mu.Unlock()
 
 	m.log.Info().Msg("connecting node")
@@ -262,18 +277,49 @@ func (m *Manager) Connect() error {
 	return nil
 }
 
-// Disconnect stops the node cleanly.
+// Disconnect stops the node cleanly and waits for active work to finish.
 func (m *Manager) Disconnect() {
+	if stopDone := m.beginDisconnect(); stopDone != nil {
+		<-stopDone
+	}
+}
+
+// DisconnectAsync marks the node paused immediately and finishes cleanup in
+// the background. A new Connect call safely waits for that cleanup to finish.
+func (m *Manager) DisconnectAsync() {
+	m.beginDisconnect()
+}
+
+func (m *Manager) beginDisconnect() <-chan struct{} {
 	m.mu.Lock()
+	if m.stopping {
+		stopDone := m.stopDone
+		m.mu.Unlock()
+		return stopDone
+	}
 	if !m.connected {
 		m.mu.Unlock()
-		return
+		return nil
 	}
 	m.connected = false
+	m.stopping = true
+	m.stopDone = make(chan struct{})
+	stopDone := m.stopDone
 	cancel := m.runCancel
 	engine := m.engine
 	m.mu.Unlock()
 
+	m.emit(func(s *Status) {
+		s.Connection = string(wsclient.StateDisconnected)
+		s.Paused = true
+		s.Detail = "Paused — tap to start again."
+	})
+
+	go m.finishDisconnect(cancel, engine, stopDone)
+	return stopDone
+}
+
+func (m *Manager) finishDisconnect(cancel context.CancelFunc, engine *browser.Engine, stopDone chan struct{}) {
 	m.log.Info().Msg("disconnecting node")
 	// Workers and goroutines exit on context cancellation. The job queue is
 	// intentionally not closed (senders may still race); it is dropped and GC'd.
@@ -287,13 +333,11 @@ func (m *Manager) Disconnect() {
 	m.mu.Lock()
 	m.engine = nil
 	m.jobQueue = nil
+	m.runCtx = nil
+	m.runCancel = nil
+	m.stopping = false
+	close(stopDone)
 	m.mu.Unlock()
-
-	m.emit(func(s *Status) {
-		s.Connection = string(wsclient.StateDisconnected)
-		s.Paused = true
-		s.Detail = "Paused"
-	})
 }
 
 // IsConnected reports whether the node is currently running.

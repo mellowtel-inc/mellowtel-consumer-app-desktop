@@ -87,7 +87,7 @@ export default function SettingsScreen({ deviceId, onBack }: Props) {
             />
             <ToggleRow
               title="Launch on system startup"
-              subtitle="Open Mellowtel when your computer starts"
+              subtitle="Open Earnbear when your computer starts"
               checked={settings.launchOnStartup}
               onChange={(v) => update('launchOnStartup', v)}
             />

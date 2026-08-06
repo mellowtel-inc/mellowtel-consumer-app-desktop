@@ -1,25 +1,27 @@
+@font-face {
+  font-family: 'Manrope';
+  src: url('../../../public/fonts/manrope-latin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+}
+
 :root {
-  /* Surfaces */
-  --bg: #0a0e14;
-  --bg-panel: #0f141c;
-  --card: #151c26;
-  --card-hover: #1a222e;
-  --border: #1f2a37;
-
-  /* Text */
-  --text: #ffffff;
-  --text-dim: #7d8b9e;
-  --text-faint: #5a6779;
-
-  /* Accent */
-  --accent: #2ee0a5;
-  --accent-dim: #1fb98a;
-  --accent-glow: rgba(46, 224, 165, 0.35);
-  --amber: #f0b429;
-  --grey: #56637a;
-  --red: #f87171;
-
-  --radius: 14px;
+  --bg: #f8fafc;
+  --bg-panel: #ffffff;
+  --card: rgba(255, 255, 255, 0.9);
+  --card-hover: #ffffff;
+  --border: rgba(24, 33, 42, 0.11);
+  --text: #18212a;
+  --text-dim: #596675;
+  --text-faint: #7f8b98;
+  --accent: #315efb;
+  --accent-dim: #2144c6;
+  --accent-glow: rgba(49, 94, 251, 0.28);
+  --amber: #d79a2b;
+  --grey: #9aa7b5;
+  --red: #dc5a5a;
+  --radius: 18px;
 }
 
 * {
@@ -35,8 +37,11 @@ body,
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
-  background: var(--bg);
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(49, 94, 251, 0.09), transparent 28%),
+    radial-gradient(circle at 5% 68%, rgba(131, 181, 255, 0.1), transparent 34%),
+    var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -49,12 +54,17 @@ button {
   cursor: pointer;
 }
 
+button:focus-visible {
+  outline: 3px solid rgba(49, 94, 251, 0.2);
+  outline-offset: 2px;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: rgba(24, 33, 42, 0.16);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-track {
