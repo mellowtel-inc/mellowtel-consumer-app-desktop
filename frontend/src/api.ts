@@ -67,6 +67,7 @@ type AppBridge = {
   GetLogPath(): Promise<string>;
   OpenURL(url: string): Promise<void>;
   ShowWindow(): Promise<void>;
+  Quit(): Promise<void>;
   GetAuthState(): Promise<AuthState>;
   SignIn(email: string, password: string): Promise<AuthState>;
   SignUp(email: string, password: string): Promise<SignUpResult>;
@@ -105,6 +106,7 @@ export const API = {
   openLogsFolder: () => app().OpenLogsFolder(),
   getLogPath: () => app().GetLogPath(),
   openURL: (url: string) => app().OpenURL(url),
+  quit: () => app().Quit(),
   getAuthState: () => app().GetAuthState(),
   signIn: (email: string, password: string) => app().SignIn(email, password),
   signUp: (email: string, password: string) => app().SignUp(email, password),

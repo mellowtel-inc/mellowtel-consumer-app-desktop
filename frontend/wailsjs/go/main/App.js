@@ -54,6 +54,10 @@ export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
 }
 
+export function Quit() {
+  return window['go']['main']['App']['Quit']();
+}
+
 export function ResendSignUpCode(arg1) {
   return window['go']['main']['App']['ResendSignUpCode'](arg1);
 }

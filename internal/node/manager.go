@@ -187,6 +187,7 @@ func (m *Manager) emit(mutate func(*Status)) {
 // Connect starts the node: browser engine, worker pool, WebSocket and approval
 // polling. It is idempotent.
 func (m *Manager) Connect() error {
+	announced := false
 	for {
 		m.mu.Lock()
 		if m.connected {
@@ -196,6 +197,16 @@ func (m *Manager) Connect() error {
 		if m.stopping {
 			stopDone := m.stopDone
 			m.mu.Unlock()
+			if !announced {
+				// Publish the user's intent before waiting for a previous
+				// disconnect to drain. Status polling then keeps the UI active.
+				m.emit(func(s *Status) {
+					s.Connection = string(wsclient.StateConnecting)
+					s.Paused = false
+					s.Detail = "Connecting…"
+				})
+				announced = true
+			}
 			<-stopDone
 			continue
 		}
@@ -208,21 +219,19 @@ func (m *Manager) Connect() error {
 		m.mu.Unlock()
 		break
 	}
+	if !announced {
+		m.emit(func(s *Status) {
+			s.Connection = string(wsclient.StateConnecting)
+			s.Paused = false
+			s.Detail = "Connecting…"
+		})
+	}
 
 	m.mu.Lock()
 	ctx := m.runCtx
 	m.mu.Unlock()
 
 	m.log.Info().Msg("connecting node")
-	// Publish the user's intent before any browser, WebSocket, or approval
-	// goroutine starts. Those goroutines can emit immediately; if Paused is
-	// cleared later, an early "connecting" event briefly renders the UI as off.
-	m.emit(func(s *Status) {
-		s.Connection = string(wsclient.StateConnecting)
-		s.Paused = false
-		s.Detail = "Connecting…"
-	})
-
 	// Start the browser engine if Chrome is available. Failure is non-fatal:
 	// jobs fall back to the simple fetch path.
 	var engine *browser.Engine

@@ -10,8 +10,6 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"mellowtel-consumer/internal/account"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/config"
@@ -43,7 +41,7 @@ func main() {
 		OnToggle: func() { app.Toggle() },
 		OnQuit: func() {
 			if app.ctx != nil {
-				wailsruntime.Quit(app.ctx)
+				app.Quit()
 			} else {
 				os.Exit(0)
 			}
@@ -52,18 +50,19 @@ func main() {
 	app.tray.Start()
 
 	err = wails.Run(&options.App{
-		Title:             "Earnbear",
-		Width:             430,
-		Height:            700,
-		MinWidth:          390,
-		MinHeight:         620,
-		DisableResize:     false,
-		BackgroundColour:  &options.RGBA{R: 248, G: 250, B: 252, A: 1},
-		AssetServer:       &assetserver.Options{Assets: assets},
-		OnStartup:         app.startup,
-		OnShutdown:        app.shutdown,
-		OnBeforeClose:     app.beforeClose,
-		HideWindowOnClose: false, // handled explicitly in beforeClose
+		Title:            "Earnbear",
+		Width:            430,
+		Height:           700,
+		MinWidth:         390,
+		MinHeight:        620,
+		DisableResize:    false,
+		BackgroundColour: &options.RGBA{R: 248, G: 250, B: 252, A: 1},
+		AssetServer:      &assetserver.Options{Assets: assets},
+		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
+		// Let the native window close button hide Earnbear without routing the
+		// macOS/Dock Quit command through the same close-to-tray callback.
+		HideWindowOnClose: true,
 		Bind: []interface{}{
 			app,
 		},

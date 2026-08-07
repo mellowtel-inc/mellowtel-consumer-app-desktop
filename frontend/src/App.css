@@ -681,6 +681,21 @@
   background: var(--accent);
   box-shadow: 0 6px 16px rgba(49, 94, 251, .2);
 }
+.quit-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.quit-card > span { display: grid; gap: 4px; }
+.quit-card b { font-size: 12px; }
+.quit-card small { color: #7c8997; font-size: 9px; font-weight: 500; }
+.quit-card strong { color: #b04451; font-size: 10px; }
+.quit-card:hover { border-color: rgba(176, 68, 81, .2); background: #fff; }
 
 .modal-overlay {
   background: rgba(24, 33, 42, .42);
@@ -765,9 +780,18 @@
   width: 188px;
   height: 248px;
   display: block;
-  object-fit: contain;
   filter: drop-shadow(0 20px 22px rgba(24, 33, 42, .13));
   transform: translateX(-50%);
+  transition: opacity .24s ease;
+}
+.dashboard-mascot-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  opacity: 0;
   transition: opacity .24s ease;
 }
 .sharing-stage.active .dashboard-mascot {
@@ -775,10 +799,14 @@
   filter: saturate(1.32) contrast(1.04) brightness(1.03) drop-shadow(0 22px 25px rgba(49, 94, 251, .2));
   animation: mascot-breathe 3.4s ease-in-out infinite;
 }
+.sharing-stage.active .mascot-active { opacity: 1; }
+.sharing-stage.active .mascot-paused { opacity: 0; }
 .sharing-stage.paused .dashboard-mascot {
   opacity: .78;
   filter: grayscale(.92) saturate(.28) contrast(.92) drop-shadow(0 16px 18px rgba(24, 33, 42, .1));
 }
+.sharing-stage.paused .mascot-active { opacity: 0; }
+.sharing-stage.paused .mascot-paused { opacity: 1; }
 .sharing-stage.paused::before {
   background: radial-gradient(circle, rgba(132, 145, 160, .14), rgba(132, 145, 160, .04) 56%, transparent 72%);
 }

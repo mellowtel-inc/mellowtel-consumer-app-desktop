@@ -30,6 +30,8 @@ export function OpenLogsFolder():Promise<void>;
 
 export function OpenURL(arg1:string):Promise<void>;
 
+export function Quit():Promise<void>;
+
 export function ResendSignUpCode(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:config.Settings):Promise<void>;

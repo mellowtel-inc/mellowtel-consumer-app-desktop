@@ -104,12 +104,6 @@ export default function SettingsScreen({ deviceId, email, onSignOut, onBack }: P
               onChange={(v) => update('launchOnStartup', v)}
             />
             <ToggleRow
-              title="Close to tray (keep running)"
-              subtitle="Keep earning after you close the window"
-              checked={settings.closeToTray}
-              onChange={(v) => update('closeToTray', v)}
-            />
-            <ToggleRow
               title="Notifications"
               subtitle="Milestones and status changes"
               checked={settings.notifications}
@@ -131,6 +125,15 @@ export default function SettingsScreen({ deviceId, email, onSignOut, onBack }: P
               </div>
               <p className="hint">{INTENSITY_COPY[settings.sharingIntensity]}</p>
             </div>
+
+            <SectionLabel>Application</SectionLabel>
+            <button className="card quit-card" onClick={() => API.quit()}>
+              <span>
+                <b>Quit Earnbear</b>
+                <small>Stop sharing and close the app completely</small>
+              </span>
+              <strong>Quit</strong>
+            </button>
 
           </>
         )}

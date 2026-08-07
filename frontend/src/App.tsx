@@ -82,7 +82,6 @@ export default function App() {
     );
     try {
       await API.toggle();
-      setStatus(await API.getStatus());
     } catch {
       /* bridge not ready */
     } finally {
@@ -162,12 +161,14 @@ export default function App() {
               />
             ))}
           </div>
-          <img
-            key={active ? 'active-mascot' : 'paused-mascot'}
+          <div
             className="dashboard-mascot"
-            src={active ? earnbearCoinPresenter : earnbearPausedSad}
-            alt={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
-          />
+            role="img"
+            aria-label={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
+          >
+            <img className="dashboard-mascot-image mascot-active" src={earnbearCoinPresenter} alt="" aria-hidden="true" />
+            <img className="dashboard-mascot-image mascot-paused" src={earnbearPausedSad} alt="" aria-hidden="true" />
+          </div>
           <button
             className={`power ${active ? 'on' : 'off'}`}
             onClick={toggle}

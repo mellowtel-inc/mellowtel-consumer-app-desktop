@@ -62,7 +62,9 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is invoked by Wails on quit. It stops the node and closes logs.
 func (a *App) shutdown(ctx context.Context) {
 	log.Info().Msg("shutting down")
-	a.manager.Disconnect()
+	// Begin cleanup without waiting for every in-flight network worker. A slow
+	// request must never keep the desktop process alive after the user quits.
+	a.manager.DisconnectAsync()
 	if a.tray != nil {
 		a.tray.Quit()
 	}
@@ -71,14 +73,11 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-// beforeClose implements close-to-tray: returning true prevents the window from
-// closing so the app keeps running in the tray.
-func (a *App) beforeClose(ctx context.Context) bool {
-	if a.cfg.Settings.CloseToTray {
-		wailsruntime.WindowHide(ctx)
-		return true // prevent close
+// Quit closes Earnbear completely, even when close-to-tray is enabled.
+func (a *App) Quit() {
+	if a.ctx != nil {
+		wailsruntime.Quit(a.ctx)
 	}
-	return false
 }
 
 // ---- Bound methods callable from the frontend ----
@@ -107,10 +106,14 @@ func (a *App) Toggle() bool {
 		a.manager.DisconnectAsync()
 		return false
 	}
-	if err := a.manager.Connect(); err != nil {
-		log.Error().Err(err).Msg("connect failed")
-		return false
-	}
+	// A previous disconnect may still be draining browser and worker resources.
+	// Reconnect in the background so the UI bridge returns immediately instead
+	// of leaving the power button disabled while that cleanup completes.
+	go func() {
+		if err := a.manager.Connect(); err != nil {
+			log.Error().Err(err).Msg("connect failed")
+		}
+	}()
 	return true
 }
 
