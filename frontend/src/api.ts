@@ -27,6 +27,17 @@ export interface Status {
   earningsReady: boolean;
 }
 
+export interface AuthState {
+  authenticated: boolean;
+  email: string;
+  emailVerified: boolean;
+  name: string;
+}
+
+export interface SignUpResult {
+  confirmed: boolean;
+}
+
 export type BandwidthCap = 'unlimited' | '5gb' | '1gb';
 export type SharingIntensity = 'low' | 'medium' | 'max';
 
@@ -56,6 +67,12 @@ type AppBridge = {
   GetLogPath(): Promise<string>;
   OpenURL(url: string): Promise<void>;
   ShowWindow(): Promise<void>;
+  GetAuthState(): Promise<AuthState>;
+  SignIn(email: string, password: string): Promise<AuthState>;
+  SignUp(email: string, password: string): Promise<SignUpResult>;
+  ConfirmSignUp(email: string, code: string): Promise<void>;
+  ResendSignUpCode(email: string): Promise<void>;
+  SignOut(): Promise<void>;
 };
 
 type RuntimeBridge = {
@@ -88,6 +105,12 @@ export const API = {
   openLogsFolder: () => app().OpenLogsFolder(),
   getLogPath: () => app().GetLogPath(),
   openURL: (url: string) => app().OpenURL(url),
+  getAuthState: () => app().GetAuthState(),
+  signIn: (email: string, password: string) => app().SignIn(email, password),
+  signUp: (email: string, password: string) => app().SignUp(email, password),
+  confirmSignUp: (email: string, code: string) => app().ConfirmSignUp(email, code),
+  resendSignUpCode: (email: string) => app().ResendSignUpCode(email),
+  signOut: () => app().SignOut(),
 };
 
 // subscribe attaches an event listener as soon as the Wails runtime is injected.

@@ -6,12 +6,20 @@ export function ChromeDownloadURL() {
   return window['go']['main']['App']['ChromeDownloadURL']();
 }
 
+export function ConfirmSignUp(arg1, arg2) {
+  return window['go']['main']['App']['ConfirmSignUp'](arg1, arg2);
+}
+
 export function Connect() {
   return window['go']['main']['App']['Connect']();
 }
 
 export function Disconnect() {
   return window['go']['main']['App']['Disconnect']();
+}
+
+export function GetAuthState() {
+  return window['go']['main']['App']['GetAuthState']();
 }
 
 export function GetDeviceID() {
@@ -46,12 +54,28 @@ export function OpenURL(arg1) {
   return window['go']['main']['App']['OpenURL'](arg1);
 }
 
+export function ResendSignUpCode(arg1) {
+  return window['go']['main']['App']['ResendSignUpCode'](arg1);
+}
+
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
 export function ShowWindow() {
   return window['go']['main']['App']['ShowWindow']();
+}
+
+export function SignIn(arg1, arg2) {
+  return window['go']['main']['App']['SignIn'](arg1, arg2);
+}
+
+export function SignOut() {
+  return window['go']['main']['App']['SignOut']();
+}
+
+export function SignUp(arg1, arg2) {
+  return window['go']['main']['App']['SignUp'](arg1, arg2);
 }
 
 export function Toggle() {

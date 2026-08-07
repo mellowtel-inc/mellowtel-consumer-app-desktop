@@ -7,10 +7,12 @@ import {
   formatPoints,
   formatCount,
   Status,
+  AuthState,
 } from './api';
 import SettingsScreen from './components/SettingsScreen';
 import ChromeModal from './components/ChromeModal';
 import OnboardingFlow from './components/OnboardingFlow';
+import AuthScreen from './components/AuthScreen';
 import earnbearMark from '../../../public/brand/earnbear-mark.png';
 import earnbearCoinPresenter from '../../../public/mascot-cutouts/earnbear-coin-presenter.png';
 import earnbearPausedSad from '../../../public/mascot-cutouts/earnbear-paused-sad.png';
@@ -40,11 +42,17 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [chromeMissing, setChromeMissing] = useState(false);
+  const [authState, setAuthState] = useState<AuthState | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(
     () => window.localStorage.getItem('earnbear-onboarding-complete') !== 'true'
   );
 
   useEffect(() => {
+    API.getAuthState()
+      .then(setAuthState)
+      .catch(() => setAuthState({ authenticated: false, email: '', emailVerified: false, name: '' }))
+      .finally(() => setAuthLoading(false));
     API.getStatus().then(setStatus).catch(() => {});
     const off = onStatus(setStatus);
     const offChrome = onChromeMissing(() => setChromeMissing(true));
@@ -87,9 +95,27 @@ export default function App() {
     setShowOnboarding(false);
   };
 
+  const signOut = async () => {
+    try {
+      await API.signOut();
+    } finally {
+      setStatus(EMPTY_STATUS);
+      setShowSettings(false);
+      setAuthState({ authenticated: false, email: '', emailVerified: false, name: '' });
+    }
+  };
+
+  if (authLoading) {
+    return <div className="desktop-auth-loading"><img src={earnbearMark} alt="" /><span>Opening your den…</span></div>;
+  }
+
+  if (!authState?.authenticated) {
+    return <AuthScreen onAuthenticated={setAuthState} />;
+  }
+
   if (showSettings) {
     return (
-      <SettingsScreen deviceId={status.deviceId} onBack={() => setShowSettings(false)} />
+      <SettingsScreen deviceId={status.deviceId} email={authState.email} onSignOut={signOut} onBack={() => setShowSettings(false)} />
     );
   }
 
@@ -181,7 +207,7 @@ export default function App() {
 
         <button
           className="dashboard-btn"
-          onClick={() => API.openURL('https://www.mellowtel.com')}
+          onClick={() => API.openURL('https://earnbear.app/dashboard')}
         >
           Open dashboard <span className="arrow">↗</span>
         </button>

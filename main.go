@@ -12,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"mellowtel-consumer/internal/account"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/config"
 	"mellowtel-consumer/internal/device"
@@ -115,6 +116,7 @@ func bootstrap() (*App, error) {
 		cfg:       cfg,
 		manager:   manager,
 		autostart: autostart.New(execPath),
+		account:   account.New(configDir),
 		configDir: configDir,
 		logPath:   logPath,
 		logCloser: closer,

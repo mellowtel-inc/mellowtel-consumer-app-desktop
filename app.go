@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
@@ -9,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"mellowtel-consumer/internal/account"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/browser"
 	"mellowtel-consumer/internal/config"
@@ -23,6 +25,7 @@ type App struct {
 	manager   *node.Manager
 	autostart autostart.Manager
 	tray      *tray.Tray
+	account   *account.Client
 
 	configDir string
 	logPath   string
@@ -48,7 +51,7 @@ func (a *App) startup(ctx context.Context) {
 		wailsruntime.EventsEmit(a.ctx, "chrome:missing", browser.DownloadURL)
 	}
 
-	if a.cfg.Settings.AutoConnect {
+	if a.cfg.Settings.AutoConnect && a.account.HasSession() {
 		log.Info().Msg("auto-connect enabled; connecting")
 		if err := a.manager.Connect(); err != nil {
 			log.Error().Err(err).Msg("auto-connect failed")
@@ -82,6 +85,9 @@ func (a *App) beforeClose(ctx context.Context) bool {
 
 // Connect starts sharing.
 func (a *App) Connect() error {
+	if !a.account.HasSession() {
+		return fmt.Errorf("sign in before starting sharing")
+	}
 	log.Info().Msg("frontend requested connect")
 	return a.manager.Connect()
 }
@@ -94,6 +100,9 @@ func (a *App) Disconnect() {
 
 // Toggle flips connection state and returns the resulting connected flag.
 func (a *App) Toggle() bool {
+	if !a.account.HasSession() {
+		return false
+	}
 	if a.manager.IsConnected() {
 		a.manager.DisconnectAsync()
 		return false
@@ -103,6 +112,37 @@ func (a *App) Toggle() bool {
 		return false
 	}
 	return true
+}
+
+// GetAuthState restores and validates the user's Earnbear account session.
+func (a *App) GetAuthState() (account.State, error) {
+	return a.account.GetState()
+}
+
+// SignIn authenticates through Earnbear's server-side Cognito integration.
+func (a *App) SignIn(email, password string) (account.State, error) {
+	return a.account.SignIn(email, password)
+}
+
+// SignUp creates an account and reports whether email confirmation is needed.
+func (a *App) SignUp(email, password string) (account.SignUpResult, error) {
+	return a.account.SignUp(email, password)
+}
+
+// ConfirmSignUp verifies the six-digit code sent to the user's email.
+func (a *App) ConfirmSignUp(email, code string) error {
+	return a.account.ConfirmSignUp(email, code)
+}
+
+// ResendSignUpCode sends a fresh email verification code.
+func (a *App) ResendSignUpCode(email string) error {
+	return a.account.ResendSignUpCode(email)
+}
+
+// SignOut clears the local session and stops bandwidth sharing immediately.
+func (a *App) SignOut() error {
+	a.manager.Disconnect()
+	return a.account.SignOut()
 }
 
 // GetStatus returns the current node status.

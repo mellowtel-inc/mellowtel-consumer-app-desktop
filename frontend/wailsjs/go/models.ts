@@ -1,5 +1,40 @@
+export namespace account {
+
+	export class SignUpResult {
+	    confirmed: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new SignUpResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.confirmed = source["confirmed"];
+	    }
+	}
+	export class State {
+	    authenticated: boolean;
+	    email: string;
+	    emailVerified: boolean;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new State(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.authenticated = source["authenticated"];
+	        this.email = source["email"];
+	        this.emailVerified = source["emailVerified"];
+	        this.name = source["name"];
+	    }
+	}
+
+}
+
 export namespace config {
-	
+
 	export class Settings {
 	    autoConnect: boolean;
 	    launchOnStartup: boolean;
@@ -9,11 +44,11 @@ export namespace config {
 	    bandwidthCap: string;
 	    pauseScheduleFrom: string;
 	    pauseScheduleTo: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.autoConnect = source["autoConnect"];
@@ -30,7 +65,7 @@ export namespace config {
 }
 
 export namespace node {
-	
+
 	export class Status {
 	    connection: string;
 	    detail: string;
@@ -48,11 +83,11 @@ export namespace node {
 	    totalEarnedUsd: number;
 	    sessionEarnedUsd: number;
 	    earningsReady: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.connection = source["connection"];

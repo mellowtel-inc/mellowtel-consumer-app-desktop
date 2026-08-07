@@ -3,6 +3,8 @@ import { API, copyText, Settings, SharingIntensity } from '../api';
 
 interface Props {
   deviceId: string;
+  email: string;
+  onSignOut: () => void;
   onBack: () => void;
 }
 
@@ -23,7 +25,7 @@ const INTENSITY_COPY: Record<SharingIntensity, string> = {
   max: 'Maximum — earn the most, best when you’re away.',
 };
 
-export default function SettingsScreen({ deviceId, onBack }: Props) {
+export default function SettingsScreen({ deviceId, email, onSignOut, onBack }: Props) {
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -66,6 +68,16 @@ export default function SettingsScreen({ deviceId, onBack }: Props) {
           <div className="loading">Loading…</div>
         ) : (
           <>
+            <SectionLabel>Account</SectionLabel>
+            <div className="card account-card">
+              <span className="account-avatar">{email ? email.slice(0, 1).toUpperCase() : 'E'}</span>
+              <div className="device-meta">
+                <div className="device-name">Earnbear account</div>
+                <div className="device-id">{email}</div>
+              </div>
+              <button className="link-action signout" onClick={onSignOut}>Sign out</button>
+            </div>
+
             <SectionLabel>Device</SectionLabel>
             <div className="card device-card">
               <span className="avatar">{initials}</span>
