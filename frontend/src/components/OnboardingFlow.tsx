@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import earnbearMark from '../../../../public/brand/earnbear-mark.png';
-import earnbearCoinPresenter from '../../../../public/mascot-cutouts/earnbear-coin-presenter.png';
-import earnbearPrivacy from '../../../../public/mascot-cutouts/earnbear-privacy-control.png';
-import earnbearQuiet from '../../../../public/mascot-cutouts/earnbear-quiet-earning.png';
+import earnbearMark from '../assets/brand/earnbear-mark.png';
+import earnbearCoinPresenter from '../assets/mascot/earnbear-coin-presenter.png';
+import earnbearPrivacy from '../assets/mascot/earnbear-privacy-control.png';
+import earnbearQuiet from '../assets/mascot/earnbear-quiet-earning.png';
 
 interface Props {
   onComplete: () => void;

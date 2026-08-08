@@ -13,10 +13,10 @@ import SettingsScreen from './components/SettingsScreen';
 import ChromeModal from './components/ChromeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import AuthScreen from './components/AuthScreen';
-import earnbearMark from '../../../public/brand/earnbear-mark.png';
-import earnbearCoinPresenter from '../../../public/mascot-cutouts/earnbear-coin-presenter.png';
-import earnbearPausedSad from '../../../public/mascot-cutouts/earnbear-paused-sad.png';
-import earnbearToken from '../../../public/brand/earnbear-token.png';
+import earnbearMark from './assets/brand/earnbear-mark.png';
+import earnbearCoinPresenter from './assets/mascot/earnbear-coin-presenter.png';
+import earnbearPausedSad from './assets/mascot/earnbear-paused-sad.png';
+import earnbearToken from './assets/brand/earnbear-token.png';
 
 const EMPTY_STATUS: Status = {
   connection: 'disconnected',

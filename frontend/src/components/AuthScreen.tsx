@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { API, AuthState } from '../api';
-import earnbearMark from '../../../../public/brand/earnbear-mark.png';
-import earnbearToken from '../../../../public/brand/earnbear-token.png';
+import earnbearMark from '../assets/brand/earnbear-mark.png';
+import earnbearToken from '../assets/brand/earnbear-token.png';
 
 type Mode = 'signin' | 'signup' | 'confirm';
 
