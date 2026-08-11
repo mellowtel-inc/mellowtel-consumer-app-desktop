@@ -41,7 +41,7 @@ type DeviceRegistration struct {
 	Integration     string `json:"integration"`
 }
 
-// DeviceRegistrationResult contains the short-lived proof accepted by the
+// DeviceRegistrationResult contains the expiring proof accepted by the
 // Mellowtel node gateway. It is kept in memory and refreshed before sharing.
 type DeviceRegistrationResult struct {
 	DeviceToken string `json:"deviceToken"`

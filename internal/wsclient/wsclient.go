@@ -36,7 +36,7 @@ type Config struct {
 	Log            zerolog.Logger
 	BaseURL        string // wss://ws.mellow.tel
 	DeviceID       string
-	DeviceToken    string // short-lived proof issued by earnbear.app
+	DeviceToken    string // expiring proof issued by earnbear.app
 	Version        string
 	PlatformPrefix string // e.g. "desktop"; OS suffix appended automatically
 	SpeedDownload  int    // Mbps; <=0 omits the parameter

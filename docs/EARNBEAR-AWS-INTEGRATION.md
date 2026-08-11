@@ -24,7 +24,7 @@ Content-Type: application/json
 ```
 
 The server must derive the user ID from the validated Cognito session, upsert
-the device-to-user link, and return a short-lived opaque credential:
+the device-to-user link, and return an opaque, expiring credential:
 
 ```json
 {

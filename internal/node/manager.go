@@ -161,7 +161,7 @@ func (m *Manager) SetOnStatus(fn func(Status)) {
 // ChromeFound reports whether a Chrome installation was detected.
 func (m *Manager) ChromeFound() bool { return m.chromeFound }
 
-// SetDeviceToken installs the short-lived proof returned by Earnbear's device
+// SetDeviceToken installs the expiring proof returned by Earnbear's device
 // registration endpoint. Call it before Connect; it is never persisted.
 func (m *Manager) SetDeviceToken(token string) {
 	m.mu.Lock()
