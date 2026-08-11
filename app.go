@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -92,8 +94,9 @@ func (a *App) Connect() error {
 }
 
 func (a *App) connectRegisteredDevice() error {
+	deviceID := a.manager.Status().DeviceID
 	registration, err := a.account.RegisterDevice(account.DeviceRegistration{
-		DeviceID:        a.manager.Status().DeviceID,
+		DeviceID:        deviceID,
 		AppVersion:      config.AppVersion,
 		ProtocolVersion: a.cfg.ProtocolVersion,
 		Platform:        runtime.GOOS,
@@ -103,6 +106,28 @@ func (a *App) connectRegisteredDevice() error {
 		return fmt.Errorf("register device: %w", err)
 	}
 	a.manager.SetDeviceToken(registration.DeviceToken)
+	a.manager.SetOnActivity(func(activity node.AcceptedActivity) {
+		activityID := fmt.Sprintf("%x", sha256.Sum256([]byte(deviceID+"\x00"+activity.RecordID)))
+		go func() {
+			var reportErr error
+			for attempt := 1; attempt <= 3; attempt++ {
+				reportErr = a.account.RecordClientActivity(account.ClientActivity{
+					DeviceID: deviceID, DeviceToken: registration.DeviceToken,
+					ActivityID: activityID, BytesUsed: activity.BytesUsed,
+					OccurredAt: activity.OccurredAt.Format(time.RFC3339Nano),
+				})
+				if reportErr == nil {
+					return
+				}
+				if attempt < 3 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				}
+			}
+			if reportErr != nil {
+				log.Warn().Err(reportErr).Str("activity_id", activityID).Msg("provisional activity report failed")
+			}
+		}()
+	})
 	return a.manager.Connect()
 }
 

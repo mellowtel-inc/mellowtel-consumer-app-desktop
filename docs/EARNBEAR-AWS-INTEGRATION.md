@@ -39,6 +39,12 @@ The desktop holds that token in memory and sends it as
 checks. Do not place the proof in URL query parameters, where proxies and logs
 commonly retain it.
 
+After Mellowtel's result endpoint accepts a completed job, the desktop posts a
+SHA-256-derived activity ID and byte count to `POST /api/rewards/activity`.
+Those reports are deduplicated and visible as provisional activity. They do
+not create pending or withdrawable dollars: a modified desktop can fabricate
+client events, and no approved per-job monetary rate currently exists.
+
 ## Companion server work implemented locally
 
 The companion Earnbear website/backend implementation now provides:
@@ -51,6 +57,8 @@ The companion Earnbear website/backend implementation now provides:
 4. Service-only `POST /v1/devices/verify` for gateway-side credential checks.
 5. An idempotent, micro-dollar rewards ledger ingress for the trusted Mellowtel
    result/revenue service.
+6. Device removal that revokes the current credential, hides the device from
+   the active dashboard, and retains a tombstone so it cannot silently relink.
 
 These pieces are tested locally but must be deployed before using this branch.
 

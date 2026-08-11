@@ -135,3 +135,35 @@ func TestRegisterDeviceUsesAuthenticatedSession(t *testing.T) {
 		t.Fatalf("device token = %q", result.DeviceToken)
 	}
 }
+
+func TestRecordClientActivityUsesSessionAndDeviceProof(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/rewards/activity" {
+			http.NotFound(w, r)
+			return
+		}
+		cookie, err := r.Cookie("earnbear_access")
+		if err != nil || cookie.Value != "access-token" {
+			t.Fatalf("activity report missing account session")
+		}
+		var payload ClientActivity
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.DeviceToken != "device-proof" || payload.ActivityID != "activity-hash" || payload.BytesUsed != 2048 {
+			t.Fatalf("unexpected activity: %+v", payload)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "recorded": true})
+	}))
+	defer server.Close()
+
+	client := NewWithBaseURL(t.TempDir(), server.URL)
+	client.session.Cookies["earnbear_access"] = "access-token"
+	err := client.RecordClientActivity(ClientActivity{
+		DeviceID: "mllwtl_consumer_abc123", DeviceToken: "device-proof",
+		ActivityID: "activity-hash", BytesUsed: 2048, OccurredAt: "2026-08-12T00:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

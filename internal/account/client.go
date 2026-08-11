@@ -48,6 +48,16 @@ type DeviceRegistrationResult struct {
 	LinkedAt    string `json:"linkedAt"`
 }
 
+// ClientActivity is a provisional report that a job result was accepted by
+// Mellowtel's result endpoint. It is never authoritative for cash earnings.
+type ClientActivity struct {
+	DeviceID    string `json:"deviceId"`
+	DeviceToken string `json:"deviceToken"`
+	ActivityID  string `json:"activityId"`
+	BytesUsed   int64  `json:"bytesUsed"`
+	OccurredAt  string `json:"occurredAt"`
+}
+
 type storedSession struct {
 	Email   string            `json:"email"`
 	Cookies map[string]string `json:"cookies"`
@@ -104,6 +114,12 @@ func (c *Client) RegisterDevice(registration DeviceRegistration) (DeviceRegistra
 		return DeviceRegistrationResult{}, errors.New("Earnbear did not return a device credential")
 	}
 	return DeviceRegistrationResult{DeviceToken: response.DeviceToken, LinkedAt: response.LinkedAt}, nil
+}
+
+// RecordClientActivity sends a deduplicated, non-monetary completion signal.
+// The server keeps it provisional until trusted revenue data can reconcile it.
+func (c *Client) RecordClientActivity(activity ClientActivity) error {
+	return c.post("/api/rewards/activity", activity, nil)
 }
 
 func (c *Client) ConfirmSignUp(email, code string) error {

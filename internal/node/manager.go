@@ -64,6 +64,14 @@ type Status struct {
 	EarningsReady    bool    `json:"earningsReady"`
 }
 
+// AcceptedActivity describes a job whose result endpoint returned success.
+// It is suitable for provisional progress only, not authoritative earnings.
+type AcceptedActivity struct {
+	RecordID   string
+	BytesUsed  int64
+	OccurredAt time.Time
+}
+
 // Manager orchestrates the node lifecycle.
 type Manager struct {
 	log         zerolog.Logger
@@ -80,7 +88,8 @@ type Manager struct {
 	chromePath  string
 	chromeFound bool
 
-	onStatus func(Status)
+	onStatus   func(Status)
+	onActivity func(AcceptedActivity)
 
 	stats    *stats.Store
 	notifier *notify.Notifier
@@ -155,6 +164,13 @@ func (m *Manager) applyTotals(s *Status) {
 func (m *Manager) SetOnStatus(fn func(Status)) {
 	m.mu.Lock()
 	m.onStatus = fn
+	m.mu.Unlock()
+}
+
+// SetOnActivity registers a best-effort observer for accepted job results.
+func (m *Manager) SetOnActivity(fn func(AcceptedActivity)) {
+	m.mu.Lock()
+	m.onActivity = fn
 	m.mu.Unlock()
 }
 
@@ -542,6 +558,12 @@ func (m *Manager) runJob(ctx context.Context, exec *executor.Executor, req *job.
 			s.Detail = encouragement(s.JobsCompleted)
 		}
 	})
+	m.mu.Lock()
+	onActivity := m.onActivity
+	m.mu.Unlock()
+	if onActivity != nil {
+		onActivity(AcceptedActivity{RecordID: req.RecordID, BytesUsed: outcome.BytesUsed, OccurredAt: time.Now().UTC()})
+	}
 
 	if msg := notify.Milestone(m.stats.Totals().JobsCompleted); msg != "" {
 		m.notifier.Send("Mellowtel", msg)
