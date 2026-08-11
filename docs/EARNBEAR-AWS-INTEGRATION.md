@@ -39,24 +39,41 @@ The desktop holds that token in memory and sends it as
 checks. Do not place the proof in URL query parameters, where proxies and logs
 commonly retain it.
 
-## Server work required before merging
+## Companion server work implemented locally
 
-1. Add the authenticated Cloudflare route `POST /api/devices/register`.
-2. Add an AWS device service (Lambda + DynamoDB) that owns the immutable mapping
-   from Cognito `sub` to stable device ID.
-3. Issue signed, short-lived device proofs containing user ID, device ID,
-   audience, issued-at, and expiry claims. Rotate the signing key in AWS Secrets
-   Manager and expose only verification material to the node gateway.
-4. Make `ws.mellow.tel` and `api.mellow.tel/approval` reject a missing, expired,
-   or mismatched proof before accepting work from the node.
-5. Have the trusted Mellowtel result/revenue service—not the desktop—emit
-   idempotent usage and earnings events into the AWS rewards ledger.
+The companion Earnbear website/backend implementation now provides:
 
-## Dashboard and payout endpoints still needed
+1. Authenticated Cloudflare route `POST /api/devices/register`.
+2. AWS Lambda + DynamoDB device registry with an immutable device-to-Cognito
+   account mapping.
+3. Random opaque device credentials whose SHA-256 digests are stored in AWS.
+   Credentials expire after 30 days and are rotated whenever sharing starts.
+4. Service-only `POST /v1/devices/verify` for gateway-side credential checks.
+5. An idempotent, micro-dollar rewards ledger ingress for the trusted Mellowtel
+   result/revenue service.
+
+These pieces are tested locally but must be deployed before using this branch.
+
+## Server work still required before release
+
+1. Make `ws.mellow.tel` and `api.mellow.tel/approval` call the AWS verification
+   endpoint and reject a missing, expired, or mismatched credential before
+   accepting work from the node.
+2. Have the trusted Mellowtel result/revenue service—not the desktop—emit
+   idempotent verified earnings events into the AWS rewards ledger.
+3. Decide whether the gateway should cache successful verification briefly to
+   avoid one Lambda call per approval or socket reconnect.
+
+## Dashboard endpoints implemented locally
 
 - `GET /api/devices`: signed-in user's devices, last seen, app version, state.
 - `GET /api/rewards/summary`: verified, pending, promotional, and withdrawable
   balances. Never calculate money from client-reported job counts.
+
+The account dashboard reads both through `GET /api/account/overview`.
+
+## Payout endpoints still needed
+
 - `POST /api/payouts/onboarding-session`: creates the provider-hosted recipient
   onboarding URL/widget session.
 - `POST /api/payouts/withdraw`: enforces method-specific minimums, the first
