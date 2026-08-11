@@ -7,6 +7,7 @@ package wsclient
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"runtime"
 	"time"
@@ -32,12 +33,13 @@ const (
 
 // Config configures a Client.
 type Config struct {
-	Log           zerolog.Logger
-	BaseURL       string // wss://ws.mellow.tel
-	DeviceID      string
-	Version       string
+	Log            zerolog.Logger
+	BaseURL        string // wss://ws.mellow.tel
+	DeviceID       string
+	DeviceToken    string // short-lived proof issued by earnbear.app
+	Version        string
 	PlatformPrefix string // e.g. "desktop"; OS suffix appended automatically
-	SpeedDownload int    // Mbps; <=0 omits the parameter
+	SpeedDownload  int    // Mbps; <=0 omits the parameter
 
 	// OnMessage is invoked for every inbound text frame (raw bytes).
 	OnMessage func(data []byte)
@@ -137,7 +139,11 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	defer cancel()
 
 	c.log.Info().Str("url", redact(target)).Msg("dialing registration socket")
-	conn, _, err := websocket.DefaultDialer.DialContext(dialCtx, target, nil)
+	headers := make(http.Header)
+	if c.cfg.DeviceToken != "" {
+		headers.Set("X-Earnbear-Device-Token", c.cfg.DeviceToken)
+	}
+	conn, _, err := websocket.DefaultDialer.DialContext(dialCtx, target, headers)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)
 	}

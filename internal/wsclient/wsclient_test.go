@@ -41,6 +41,10 @@ func TestConnURLIncludesRegistrationParams(t *testing.T) {
 func TestMessageDispatch(t *testing.T) {
 	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Earnbear-Device-Token") != "device-proof" {
+			http.Error(w, "missing device proof", http.StatusUnauthorized)
+			return
+		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
@@ -63,6 +67,7 @@ func TestMessageDispatch(t *testing.T) {
 		Log:            zerolog.Nop(),
 		BaseURL:        wsURL,
 		DeviceID:       "mllwtl_consumer_x",
+		DeviceToken:    "device-proof",
 		Version:        "1",
 		PlatformPrefix: "desktop",
 		OnMessage: func(data []byte) {

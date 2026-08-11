@@ -53,7 +53,7 @@ func (a *App) startup(ctx context.Context) {
 
 	if a.cfg.Settings.AutoConnect && a.account.HasSession() {
 		log.Info().Msg("auto-connect enabled; connecting")
-		if err := a.manager.Connect(); err != nil {
+		if err := a.connectRegisteredDevice(); err != nil {
 			log.Error().Err(err).Msg("auto-connect failed")
 		}
 	}
@@ -88,6 +88,21 @@ func (a *App) Connect() error {
 		return fmt.Errorf("sign in before starting sharing")
 	}
 	log.Info().Msg("frontend requested connect")
+	return a.connectRegisteredDevice()
+}
+
+func (a *App) connectRegisteredDevice() error {
+	registration, err := a.account.RegisterDevice(account.DeviceRegistration{
+		DeviceID:        a.manager.Status().DeviceID,
+		AppVersion:      config.AppVersion,
+		ProtocolVersion: a.cfg.ProtocolVersion,
+		Platform:        runtime.GOOS,
+		Integration:     a.cfg.Integration,
+	})
+	if err != nil {
+		return fmt.Errorf("register device: %w", err)
+	}
+	a.manager.SetDeviceToken(registration.DeviceToken)
 	return a.manager.Connect()
 }
 
@@ -110,7 +125,7 @@ func (a *App) Toggle() bool {
 	// Reconnect in the background so the UI bridge returns immediately instead
 	// of leaving the power button disabled while that cleanup completes.
 	go func() {
-		if err := a.manager.Connect(); err != nil {
+		if err := a.connectRegisteredDevice(); err != nil {
 			log.Error().Err(err).Msg("connect failed")
 		}
 	}()

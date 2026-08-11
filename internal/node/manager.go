@@ -66,10 +66,11 @@ type Status struct {
 
 // Manager orchestrates the node lifecycle.
 type Manager struct {
-	log       zerolog.Logger
-	cfg       *config.Config
-	configDir string
-	deviceID  string
+	log         zerolog.Logger
+	cfg         *config.Config
+	configDir   string
+	deviceID    string
+	deviceToken string
 
 	fetcher   *fetch.Client
 	md        *markdown.Converter
@@ -160,6 +161,14 @@ func (m *Manager) SetOnStatus(fn func(Status)) {
 // ChromeFound reports whether a Chrome installation was detected.
 func (m *Manager) ChromeFound() bool { return m.chromeFound }
 
+// SetDeviceToken installs the short-lived proof returned by Earnbear's device
+// registration endpoint. Call it before Connect; it is never persisted.
+func (m *Manager) SetDeviceToken(token string) {
+	m.mu.Lock()
+	m.deviceToken = token
+	m.mu.Unlock()
+}
+
 // Status returns the current status snapshot.
 func (m *Manager) Status() Status {
 	m.mu.Lock()
@@ -229,6 +238,7 @@ func (m *Manager) Connect() error {
 
 	m.mu.Lock()
 	ctx := m.runCtx
+	deviceToken := m.deviceToken
 	m.mu.Unlock()
 
 	m.log.Info().Msg("connecting node")
@@ -261,6 +271,7 @@ func (m *Manager) Connect() error {
 		Log:            m.log,
 		BaseURL:        m.cfg.Endpoints.WebSocketURL,
 		DeviceID:       m.deviceID,
+		DeviceToken:    deviceToken,
 		Version:        m.cfg.ProtocolVersion,
 		PlatformPrefix: m.cfg.PlatformPrefix,
 		SpeedDownload:  500,
@@ -280,6 +291,7 @@ func (m *Manager) Connect() error {
 	// Approval polling.
 	checker := approval.New(m.log, m.cfg.Endpoints.ApprovalURL, approval.Params{
 		DeviceID:      m.deviceID,
+		DeviceToken:   deviceToken,
 		Version:       m.cfg.ProtocolVersion,
 		Platform:      m.cfg.PlatformPrefix,
 		SpeedDownload: 500,

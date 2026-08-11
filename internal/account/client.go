@@ -30,6 +30,24 @@ type SignUpResult struct {
 	Confirmed bool `json:"confirmed"`
 }
 
+// DeviceRegistration is the public metadata needed to bind this installation
+// to the signed-in Earnbear account. The server derives the user identity from
+// the HttpOnly Cognito session; the desktop never sends or stores AWS secrets.
+type DeviceRegistration struct {
+	DeviceID        string `json:"deviceId"`
+	AppVersion      string `json:"appVersion"`
+	ProtocolVersion string `json:"protocolVersion"`
+	Platform        string `json:"platform"`
+	Integration     string `json:"integration"`
+}
+
+// DeviceRegistrationResult contains the short-lived proof accepted by the
+// Mellowtel node gateway. It is kept in memory and refreshed before sharing.
+type DeviceRegistrationResult struct {
+	DeviceToken string `json:"deviceToken"`
+	LinkedAt    string `json:"linkedAt"`
+}
+
 type storedSession struct {
 	Email   string            `json:"email"`
 	Cookies map[string]string `json:"cookies"`
@@ -68,6 +86,24 @@ func (c *Client) SignUp(email, password string) (SignUpResult, error) {
 		return SignUpResult{}, err
 	}
 	return SignUpResult{Confirmed: response.Confirmed}, nil
+}
+
+// RegisterDevice links a stable desktop device ID to the authenticated user.
+// This request goes through earnbear.app so credentials and AWS signing remain
+// on trusted server infrastructure.
+func (c *Client) RegisterDevice(registration DeviceRegistration) (DeviceRegistrationResult, error) {
+	var response struct {
+		Success     bool   `json:"success"`
+		DeviceToken string `json:"deviceToken"`
+		LinkedAt    string `json:"linkedAt"`
+	}
+	if err := c.post("/api/devices/register", registration, &response); err != nil {
+		return DeviceRegistrationResult{}, err
+	}
+	if strings.TrimSpace(response.DeviceToken) == "" {
+		return DeviceRegistrationResult{}, errors.New("Earnbear did not return a device credential")
+	}
+	return DeviceRegistrationResult{DeviceToken: response.DeviceToken, LinkedAt: response.LinkedAt}, nil
 }
 
 func (c *Client) ConfirmSignUp(email, code string) error {
