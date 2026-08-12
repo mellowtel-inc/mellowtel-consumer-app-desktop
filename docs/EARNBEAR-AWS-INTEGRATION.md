@@ -41,16 +41,18 @@ commonly retain it.
 
 After Mellowtel's result endpoint accepts a completed job, the desktop appends
 a SHA-256-derived activity ID and byte count to a permission-restricted local
-write-ahead log. One uploader sends up to 100 activities every fifteen minutes,
-with randomized timing and exponential retry backoff, to
-`POST /api/rewards/activity`. A batch is removed locally only after the server
+write-ahead log. One uploader sends a compact summary of up to 1,000 activities
+every six hours, or immediately when the batch fills, with randomized timing
+and exponential retry backoff to `POST /api/rewards/activity`. The summary
+contains a count, byte total, time bounds, and a SHA-256 digest instead of the
+individual job records. A batch is removed locally only after the server
 accepts it into SQS, so application restarts and temporary outages do not lose
 activity. Device credentials remain memory-only. Reports are deduplicated and
 visible as provisional activity. They do not create pending or withdrawable
 dollars: a modified desktop can fabricate client events, and no approved
 per-job monetary rate currently exists.
 
-## Companion server work implemented locally
+## Companion server deployed
 
 The companion Earnbear website/backend implementation now provides:
 
@@ -65,10 +67,12 @@ The companion Earnbear website/backend implementation now provides:
 6. Device removal that revokes the current credential, hides the device from
    the active dashboard, and retains a tombstone so it cannot silently relink.
 7. Encrypted SQS ingestion with a dead-letter queue, bounded processor
-   concurrency, 90-day raw batch expiry, and permanent daily/lifetime
-   aggregates suitable for approximately one million installed devices.
+   concurrency, 14-day raw batch expiry, 400-day daily investigation records,
+   and lifetime profile aggregates suitable for approximately one million
+   installed devices.
 
-These pieces are tested locally but must be deployed before using this branch.
+These pieces are deployed behind `earnbear.app` and the AWS production stack in
+`us-east-1`. Cognito remains the identity issuer and runs on its Lite tier.
 
 ## Server work still required before release
 
