@@ -70,7 +70,7 @@ type AppBridge = {
   Quit(): Promise<void>;
   GetAuthState(): Promise<AuthState>;
   SignIn(email: string, password: string): Promise<AuthState>;
-  SignUp(email: string, password: string): Promise<SignUpResult>;
+  SignUp(email: string, password: string, affiliateCode: string): Promise<SignUpResult>;
   ConfirmSignUp(email: string, code: string): Promise<void>;
   ResendSignUpCode(email: string): Promise<void>;
   SignOut(): Promise<void>;
@@ -109,7 +109,7 @@ export const API = {
   quit: () => app().Quit(),
   getAuthState: () => app().GetAuthState(),
   signIn: (email: string, password: string) => app().SignIn(email, password),
-  signUp: (email: string, password: string) => app().SignUp(email, password),
+  signUp: (email: string, password: string, affiliateCode = '') => app().SignUp(email, password, affiliateCode),
   confirmSignUp: (email: string, code: string) => app().ConfirmSignUp(email, code),
   resendSignUpCode: (email: string) => app().ResendSignUpCode(email),
   signOut: () => app().SignOut(),

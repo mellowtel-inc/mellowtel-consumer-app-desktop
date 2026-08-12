@@ -42,6 +42,6 @@ export function SignIn(arg1:string,arg2:string):Promise<account.State>;
 
 export function SignOut():Promise<void>;
 
-export function SignUp(arg1:string,arg2:string):Promise<account.SignUpResult>;
+export function SignUp(arg1:string,arg2:string,arg3:string):Promise<account.SignUpResult>;
 
 export function Toggle():Promise<boolean>;

@@ -58,13 +58,15 @@ func NewWithBaseURL(configDir, baseURL string) *Client {
 	return c
 }
 
-func (c *Client) SignUp(email, password string) (SignUpResult, error) {
+func (c *Client) SignUp(email, password, affiliateCode string) (SignUpResult, error) {
 	var response struct {
 		Success   bool   `json:"success"`
 		Confirmed bool   `json:"confirmed"`
 		Message   string `json:"message"`
 	}
-	if err := c.post("/api/auth/signup", map[string]string{"email": email, "password": password}, &response); err != nil {
+	if err := c.post("/api/auth/signup", map[string]string{
+		"email": email, "password": password, "affiliateCode": affiliateCode,
+	}, &response); err != nil {
 		return SignUpResult{}, err
 	}
 	return SignUpResult{Confirmed: response.Confirmed}, nil

@@ -78,8 +78,8 @@ export function SignOut() {
   return window['go']['main']['App']['SignOut']();
 }
 
-export function SignUp(arg1, arg2) {
-  return window['go']['main']['App']['SignUp'](arg1, arg2);
+export function SignUp(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SignUp'](arg1, arg2, arg3);
 }
 
 export function Toggle() {

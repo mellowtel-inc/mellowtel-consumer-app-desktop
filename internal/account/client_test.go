@@ -75,6 +75,13 @@ func TestSignUpAndConfirm(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/auth/signup":
 			signup = true
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["affiliateCode"] != "CREATOR10" {
+				t.Fatalf("affiliateCode = %q, want CREATOR10", payload["affiliateCode"])
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "confirmed": false})
 		case "/api/auth/confirm":
 			confirm = true
@@ -86,7 +93,7 @@ func TestSignUpAndConfirm(t *testing.T) {
 	defer server.Close()
 
 	client := NewWithBaseURL(t.TempDir(), server.URL)
-	result, err := client.SignUp("new@example.com", "strong-password")
+	result, err := client.SignUp("new@example.com", "strong-password", "CREATOR10")
 	if err != nil || result.Confirmed {
 		t.Fatalf("signup result = %+v, err = %v", result, err)
 	}
