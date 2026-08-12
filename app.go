@@ -13,6 +13,7 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"mellowtel-consumer/internal/account"
+	"mellowtel-consumer/internal/activity"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/browser"
 	"mellowtel-consumer/internal/config"
@@ -28,6 +29,7 @@ type App struct {
 	autostart autostart.Manager
 	tray      *tray.Tray
 	account   *account.Client
+	activity  *activity.Reporter
 
 	configDir string
 	logPath   string
@@ -39,6 +41,7 @@ type App struct {
 // the runtime context (event emission, auto-connect) happens here.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.activity.Start(ctx)
 
 	// Push status changes to both the frontend and the tray icon.
 	a.manager.SetOnStatus(func(s node.Status) {
@@ -106,27 +109,15 @@ func (a *App) connectRegisteredDevice() error {
 		return fmt.Errorf("register device: %w", err)
 	}
 	a.manager.SetDeviceToken(registration.DeviceToken)
+	a.activity.SetCredential(deviceID, registration.DeviceToken)
 	a.manager.SetOnActivity(func(activity node.AcceptedActivity) {
 		activityID := fmt.Sprintf("%x", sha256.Sum256([]byte(deviceID+"\x00"+activity.RecordID)))
-		go func() {
-			var reportErr error
-			for attempt := 1; attempt <= 3; attempt++ {
-				reportErr = a.account.RecordClientActivity(account.ClientActivity{
-					DeviceID: deviceID, DeviceToken: registration.DeviceToken,
-					ActivityID: activityID, BytesUsed: activity.BytesUsed,
-					OccurredAt: activity.OccurredAt.Format(time.RFC3339Nano),
-				})
-				if reportErr == nil {
-					return
-				}
-				if attempt < 3 {
-					time.Sleep(time.Duration(attempt) * 2 * time.Second)
-				}
-			}
-			if reportErr != nil {
-				log.Warn().Err(reportErr).Str("activity_id", activityID).Msg("provisional activity report failed")
-			}
-		}()
+		if err := a.activity.Enqueue(account.ClientActivity{
+			ActivityID: activityID, BytesUsed: activity.BytesUsed,
+			OccurredAt: activity.OccurredAt.Format(time.RFC3339Nano),
+		}); err != nil {
+			log.Warn().Err(err).Str("activity_id", activityID).Msg("could not persist provisional activity")
+		}
 	})
 	return a.manager.Connect()
 }
@@ -185,6 +176,7 @@ func (a *App) ResendSignUpCode(email string) error {
 // SignOut clears the local session and stops bandwidth sharing immediately.
 func (a *App) SignOut() error {
 	a.manager.Disconnect()
+	a.activity.ClearCredential()
 	return a.account.SignOut()
 }
 

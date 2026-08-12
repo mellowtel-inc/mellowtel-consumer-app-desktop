@@ -39,11 +39,16 @@ The desktop holds that token in memory and sends it as
 checks. Do not place the proof in URL query parameters, where proxies and logs
 commonly retain it.
 
-After Mellowtel's result endpoint accepts a completed job, the desktop posts a
-SHA-256-derived activity ID and byte count to `POST /api/rewards/activity`.
-Those reports are deduplicated and visible as provisional activity. They do
-not create pending or withdrawable dollars: a modified desktop can fabricate
-client events, and no approved per-job monetary rate currently exists.
+After Mellowtel's result endpoint accepts a completed job, the desktop appends
+a SHA-256-derived activity ID and byte count to a permission-restricted local
+write-ahead log. One uploader sends up to 100 activities every fifteen minutes,
+with randomized timing and exponential retry backoff, to
+`POST /api/rewards/activity`. A batch is removed locally only after the server
+accepts it into SQS, so application restarts and temporary outages do not lose
+activity. Device credentials remain memory-only. Reports are deduplicated and
+visible as provisional activity. They do not create pending or withdrawable
+dollars: a modified desktop can fabricate client events, and no approved
+per-job monetary rate currently exists.
 
 ## Companion server work implemented locally
 
@@ -59,6 +64,9 @@ The companion Earnbear website/backend implementation now provides:
    result/revenue service.
 6. Device removal that revokes the current credential, hides the device from
    the active dashboard, and retains a tombstone so it cannot silently relink.
+7. Encrypted SQS ingestion with a dead-letter queue, bounded processor
+   concurrency, 90-day raw batch expiry, and permanent daily/lifetime
+   aggregates suitable for approximately one million installed devices.
 
 These pieces are tested locally but must be deployed before using this branch.
 

@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"mellowtel-consumer/internal/account"
+	"mellowtel-consumer/internal/activity"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/config"
 	"mellowtel-consumer/internal/device"
@@ -108,6 +109,11 @@ func bootstrap() (*App, error) {
 	log.Info().Str("device_id", deviceID).Msg("node identity ready")
 
 	manager := node.NewManager(log.Logger, cfg, configDir, deviceID)
+	accountClient := account.New(configDir)
+	activityReporter, err := activity.New(configDir, accountClient)
+	if err != nil {
+		return nil, err
+	}
 
 	execPath, _ := os.Executable()
 
@@ -115,7 +121,8 @@ func bootstrap() (*App, error) {
 		cfg:       cfg,
 		manager:   manager,
 		autostart: autostart.New(execPath),
-		account:   account.New(configDir),
+		account:   accountClient,
+		activity:  activityReporter,
 		configDir: configDir,
 		logPath:   logPath,
 		logCloser: closer,
