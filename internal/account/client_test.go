@@ -150,7 +150,7 @@ func TestRecordClientActivityBatchUsesSessionAndDeviceProof(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
-		if payload.DeviceToken != "device-proof" || payload.BatchID != "batch-hash" || len(payload.Activities) != 1 || payload.Activities[0].ActivityID != "activity-hash" || payload.Activities[0].BytesUsed != 2048 {
+		if payload.DeviceToken != "device-proof" || payload.BatchID != "batch-hash" || payload.ActivityCount != 1 || payload.ActivityBytes != 2048 || payload.ActivityDigest != "digest" {
 			t.Fatalf("unexpected activity: %+v", payload)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "recorded": true})
@@ -161,7 +161,8 @@ func TestRecordClientActivityBatchUsesSessionAndDeviceProof(t *testing.T) {
 	client.session.Cookies["earnbear_access"] = "access-token"
 	err := client.RecordClientActivityBatch(ClientActivityBatch{
 		DeviceID: "mllwtl_consumer_abc123", DeviceToken: "device-proof", BatchID: "batch-hash",
-		Activities: []ClientActivity{{ActivityID: "activity-hash", BytesUsed: 2048, OccurredAt: "2026-08-12T00:00:00Z"}},
+		ActivityCount: 1, ActivityBytes: 2048, FirstOccurred: "2026-08-12T00:00:00Z",
+		LastOccurred: "2026-08-12T00:00:00Z", ActivityDigest: "digest",
 	})
 	if err != nil {
 		t.Fatal(err)

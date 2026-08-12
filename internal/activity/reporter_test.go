@@ -28,7 +28,7 @@ func TestReporterPersistsAndAcknowledgesBoundedBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	reporter.SetCredential("mllwtl_consumer_abc123", "device-proof")
-	for index := 0; index < 105; index++ {
+	for index := 0; index < maxBatchSize+5; index++ {
 		if err := reporter.Enqueue(account.ClientActivity{
 			ActivityID: fmt.Sprintf("activity-%03d", index), BytesUsed: 1024, OccurredAt: "2026-08-12T00:00:00Z",
 		}); err != nil {
@@ -38,10 +38,10 @@ func TestReporterPersistsAndAcknowledgesBoundedBatches(t *testing.T) {
 	if err := reporter.flushOnce(); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.batches) != 1 || len(sender.batches[0].Activities) != maxBatchSize {
+	if len(sender.batches) != 1 || sender.batches[0].ActivityCount != maxBatchSize {
 		t.Fatalf("unexpected batches: %+v", sender.batches)
 	}
-	if sender.batches[0].BatchID == "" || sender.batches[0].DeviceToken != "device-proof" {
+	if sender.batches[0].BatchID == "" || sender.batches[0].DeviceToken != "device-proof" || len(sender.batches[0].ActivityDigest) != 64 {
 		t.Fatalf("batch is missing identity: %+v", sender.batches[0])
 	}
 
@@ -93,7 +93,10 @@ func TestReporterRetainsFailedBatchWithStableID(t *testing.T) {
 	if sender.batches[0].BatchID != restoredSender.batches[0].BatchID {
 		t.Fatalf("batch IDs changed across restart: %q != %q", sender.batches[0].BatchID, restoredSender.batches[0].BatchID)
 	}
-	if len(restoredSender.batches[0].Activities) != 1 || restoredSender.batches[0].Activities[0].ActivityID != "activity-001" {
-		t.Fatalf("retry regrouped an accepted batch: %+v", restoredSender.batches[0].Activities)
+	if restoredSender.batches[0].ActivityCount != 1 || restoredSender.batches[0].ActivityBytes != 10 {
+		t.Fatalf("retry regrouped an accepted batch: %+v", restoredSender.batches[0])
+	}
+	if sender.batches[0].ActivityDigest != restoredSender.batches[0].ActivityDigest {
+		t.Fatalf("batch digest changed across retry: %q != %q", sender.batches[0].ActivityDigest, restoredSender.batches[0].ActivityDigest)
 	}
 }

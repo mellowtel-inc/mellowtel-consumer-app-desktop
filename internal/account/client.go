@@ -66,12 +66,16 @@ type ClientActivity struct {
 }
 
 // ClientActivityBatch amortizes authentication and ingestion work across up
-// to 100 provisional completion records.
+// to 1,000 provisional completion records without uploading per-job details.
 type ClientActivityBatch struct {
-	DeviceID    string           `json:"deviceId"`
-	DeviceToken string           `json:"deviceToken"`
-	BatchID     string           `json:"batchId"`
-	Activities  []ClientActivity `json:"activities"`
+	DeviceID       string `json:"deviceId"`
+	DeviceToken    string `json:"deviceToken"`
+	BatchID        string `json:"batchId"`
+	ActivityCount  int    `json:"activityCount"`
+	ActivityBytes  int64  `json:"activityBytes"`
+	FirstOccurred  string `json:"firstOccurredAt"`
+	LastOccurred   string `json:"lastOccurredAt"`
+	ActivityDigest string `json:"activityDigest"`
 }
 
 type storedSession struct {

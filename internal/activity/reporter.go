@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,9 +21,9 @@ import (
 
 const (
 	outboxFileName = "activity-outbox.jsonl"
-	maxBatchSize   = 100
+	maxBatchSize   = 1_000
 	maxOutboxSize  = 50_000
-	flushInterval  = 15 * time.Minute
+	flushInterval  = 6 * time.Hour
 	drainInterval  = 30 * time.Second
 	initialRetry   = 30 * time.Second
 	maxRetry       = 5 * time.Minute
@@ -96,6 +97,9 @@ func (r *Reporter) ClearCredential() {
 func (r *Reporter) Enqueue(item account.ClientActivity) error {
 	if strings.TrimSpace(item.ActivityID) == "" || item.BytesUsed < 0 {
 		return errors.New("invalid provisional activity")
+	}
+	if strings.TrimSpace(item.OccurredAt) == "" {
+		item.OccurredAt = time.Now().UTC().Format(time.RFC3339)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -189,8 +193,12 @@ func (r *Reporter) flushOnce() error {
 	deviceID, token := r.deviceID, r.token
 	r.mu.Unlock()
 
+	summary := summarize(items)
 	if err := r.sender.RecordClientActivityBatch(account.ClientActivityBatch{
-		DeviceID: deviceID, DeviceToken: token, BatchID: batchID, Activities: items,
+		DeviceID: deviceID, DeviceToken: token, BatchID: batchID,
+		ActivityCount: len(items), ActivityBytes: summary.bytes,
+		FirstOccurred: summary.firstOccurred, LastOccurred: summary.lastOccurred,
+		ActivityDigest: summary.digest,
 	}); err != nil {
 		return err
 	}
@@ -212,6 +220,29 @@ func (r *Reporter) flushOnce() error {
 		return err
 	}
 	return nil
+}
+
+type activitySummary struct {
+	bytes                       int64
+	firstOccurred, lastOccurred string
+	digest                      string
+}
+
+func summarize(items []account.ClientActivity) activitySummary {
+	hash := sha256.New()
+	result := activitySummary{}
+	for index, item := range items {
+		result.bytes += item.BytesUsed
+		if index == 0 || item.OccurredAt < result.firstOccurred {
+			result.firstOccurred = item.OccurredAt
+		}
+		if index == 0 || item.OccurredAt > result.lastOccurred {
+			result.lastOccurred = item.OccurredAt
+		}
+		_, _ = fmt.Fprintf(hash, "%s\x00%d\x00%s\n", item.ActivityID, item.BytesUsed, item.OccurredAt)
+	}
+	result.digest = fmt.Sprintf("%x", hash.Sum(nil))
+	return result
 }
 
 func (r *Reporter) signal() {
