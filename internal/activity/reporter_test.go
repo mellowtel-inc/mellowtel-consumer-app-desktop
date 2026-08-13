@@ -1,11 +1,13 @@
 package activity
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"mellowtel-consumer/internal/account"
 )
@@ -13,11 +15,43 @@ import (
 type fakeSender struct {
 	batches []account.ClientActivityBatch
 	err     error
+	sent    chan account.ClientActivityBatch
 }
 
 func (f *fakeSender) RecordClientActivityBatch(batch account.ClientActivityBatch) error {
 	f.batches = append(f.batches, batch)
+	if f.sent != nil {
+		f.sent <- batch
+	}
 	return f.err
+}
+
+func TestReporterFlushSendsOpenTail(t *testing.T) {
+	dir := t.TempDir()
+	sender := &fakeSender{sent: make(chan account.ClientActivityBatch, 1)}
+	reporter, err := New(dir, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reporter.SetCredential("mllwtl_consumer_abc123", "device-proof")
+	if err := reporter.Enqueue(account.ClientActivity{
+		ActivityID: "activity-001", BytesUsed: 2048, OccurredAt: "2026-08-14T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reporter.Start(ctx)
+	reporter.Flush()
+
+	select {
+	case batch := <-sender.sent:
+		if batch.ActivityCount != 1 || batch.ActivityBytes != 2048 {
+			t.Fatalf("unexpected flushed tail: %+v", batch)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for activity tail flush")
+	}
 }
 
 func TestReporterPersistsAndAcknowledgesBoundedBatches(t *testing.T) {

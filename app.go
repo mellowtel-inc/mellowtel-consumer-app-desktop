@@ -67,6 +67,7 @@ func (a *App) startup(ctx context.Context) {
 // shutdown is invoked by Wails on quit. It stops the node and closes logs.
 func (a *App) shutdown(ctx context.Context) {
 	log.Info().Msg("shutting down")
+	a.activity.Flush()
 	// Begin cleanup without waiting for every in-flight network worker. A slow
 	// request must never keep the desktop process alive after the user quits.
 	a.manager.DisconnectAsync()
@@ -126,6 +127,7 @@ func (a *App) connectRegisteredDevice() error {
 func (a *App) Disconnect() {
 	log.Info().Msg("frontend requested disconnect")
 	a.manager.Disconnect()
+	a.activity.Flush()
 }
 
 // Toggle flips connection state and returns the resulting connected flag.
@@ -135,6 +137,7 @@ func (a *App) Toggle() bool {
 	}
 	if a.manager.IsConnected() {
 		a.manager.DisconnectAsync()
+		a.activity.Flush()
 		return false
 	}
 	// A previous disconnect may still be draining browser and worker resources.
