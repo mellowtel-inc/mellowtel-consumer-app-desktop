@@ -42,8 +42,9 @@ commonly retain it.
 After Mellowtel's result endpoint accepts a completed job, the desktop appends
 a SHA-256-derived activity ID and byte count to a permission-restricted local
 write-ahead log. One uploader sends a compact summary of up to 1,000 activities
-every six hours, or immediately when the batch fills, with randomized timing
-and exponential retry backoff to `POST /api/rewards/activity`. The summary
+every 15 minutes, immediately when the batch fills, or when sharing is paused,
+with randomized timing and exponential retry backoff to
+`POST /api/rewards/activity`. The summary
 contains a count, byte total, time bounds, and a SHA-256 digest instead of the
 individual job records. A batch is removed locally only after the server
 accepts it into SQS, so application restarts and temporary outages do not lose

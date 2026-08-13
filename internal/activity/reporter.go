@@ -23,7 +23,7 @@ const (
 	outboxFileName = "activity-outbox.jsonl"
 	maxBatchSize   = 1_000
 	maxOutboxSize  = 50_000
-	flushInterval  = 6 * time.Hour
+	flushInterval  = 15 * time.Minute
 	drainInterval  = 30 * time.Second
 	initialRetry   = 30 * time.Second
 	maxRetry       = 5 * time.Minute
@@ -91,6 +91,13 @@ func (r *Reporter) ClearCredential() {
 	r.deviceID = ""
 	r.token = ""
 	r.mu.Unlock()
+}
+
+// Flush asks the serialized uploader to seal and send the current tail. It is
+// asynchronous so pausing or quitting the desktop never waits on the network.
+// Failed uploads remain in the durable outbox for the normal retry loop.
+func (r *Reporter) Flush() {
+	r.signal()
 }
 
 // Enqueue appends one activity to the local write-ahead log before returning.
