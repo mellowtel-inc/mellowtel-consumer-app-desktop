@@ -4,7 +4,6 @@ import {
   API,
   onStatus,
   onChromeMissing,
-  formatPoints,
   formatCount,
   Status,
   AuthState,
@@ -143,10 +142,10 @@ export default function App() {
 
       <main className="main">
         <section className="earnings">
-          <div className="earnings-label">Total earned</div>
-          <div className="earnings-value">{formatPoints(status.totalJobsCompleted)}</div>
+          <div className="earnings-label">Pending activity</div>
+          <div className="earnings-value">{formatCount(status.totalJobsCompleted)} jobs</div>
           <div className="earnings-session">
-            + {formatPoints(status.jobsCompleted)} this session
+            + {formatCount(status.jobsCompleted)} this session
           </div>
         </section>
 

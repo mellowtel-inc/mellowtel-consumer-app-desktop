@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os/exec"
 	"runtime"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"mellowtel-consumer/internal/account"
+	"mellowtel-consumer/internal/activity"
 	"mellowtel-consumer/internal/autostart"
 	"mellowtel-consumer/internal/browser"
 	"mellowtel-consumer/internal/config"
@@ -26,6 +29,7 @@ type App struct {
 	autostart autostart.Manager
 	tray      *tray.Tray
 	account   *account.Client
+	activity  *activity.Reporter
 
 	configDir string
 	logPath   string
@@ -37,6 +41,7 @@ type App struct {
 // the runtime context (event emission, auto-connect) happens here.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.activity.Start(ctx)
 
 	// Push status changes to both the frontend and the tray icon.
 	a.manager.SetOnStatus(func(s node.Status) {
@@ -53,7 +58,7 @@ func (a *App) startup(ctx context.Context) {
 
 	if a.cfg.Settings.AutoConnect && a.account.HasSession() {
 		log.Info().Msg("auto-connect enabled; connecting")
-		if err := a.manager.Connect(); err != nil {
+		if err := a.connectRegisteredDevice(); err != nil {
 			log.Error().Err(err).Msg("auto-connect failed")
 		}
 	}
@@ -88,6 +93,32 @@ func (a *App) Connect() error {
 		return fmt.Errorf("sign in before starting sharing")
 	}
 	log.Info().Msg("frontend requested connect")
+	return a.connectRegisteredDevice()
+}
+
+func (a *App) connectRegisteredDevice() error {
+	deviceID := a.manager.Status().DeviceID
+	registration, err := a.account.RegisterDevice(account.DeviceRegistration{
+		DeviceID:        deviceID,
+		AppVersion:      config.AppVersion,
+		ProtocolVersion: a.cfg.ProtocolVersion,
+		Platform:        runtime.GOOS,
+		Integration:     a.cfg.Integration,
+	})
+	if err != nil {
+		return fmt.Errorf("register device: %w", err)
+	}
+	a.manager.SetDeviceToken(registration.DeviceToken)
+	a.activity.SetCredential(deviceID, registration.DeviceToken)
+	a.manager.SetOnActivity(func(activity node.AcceptedActivity) {
+		activityID := fmt.Sprintf("%x", sha256.Sum256([]byte(deviceID+"\x00"+activity.RecordID)))
+		if err := a.activity.Enqueue(account.ClientActivity{
+			ActivityID: activityID, BytesUsed: activity.BytesUsed,
+			OccurredAt: activity.OccurredAt.Format(time.RFC3339Nano),
+		}); err != nil {
+			log.Warn().Err(err).Str("activity_id", activityID).Msg("could not persist provisional activity")
+		}
+	})
 	return a.manager.Connect()
 }
 
@@ -110,7 +141,7 @@ func (a *App) Toggle() bool {
 	// Reconnect in the background so the UI bridge returns immediately instead
 	// of leaving the power button disabled while that cleanup completes.
 	go func() {
-		if err := a.manager.Connect(); err != nil {
+		if err := a.connectRegisteredDevice(); err != nil {
 			log.Error().Err(err).Msg("connect failed")
 		}
 	}()
@@ -145,6 +176,7 @@ func (a *App) ResendSignUpCode(email string) error {
 // SignOut clears the local session and stops bandwidth sharing immediately.
 func (a *App) SignOut() error {
 	a.manager.Disconnect()
+	a.activity.ClearCredential()
 	return a.account.SignOut()
 }
 

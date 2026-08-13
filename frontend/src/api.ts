@@ -158,7 +158,7 @@ export function copyText(text: string): void {
   }
 }
 
-// formatPoints renders the Earnbear rewards balance without a currency symbol.
+// formatPoints is retained for reward displays that use a real server balance.
 export function formatPoints(n: number): string {
   return `${(n || 0).toLocaleString(undefined, {
     minimumFractionDigits: 0,

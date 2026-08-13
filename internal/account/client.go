@@ -30,6 +30,54 @@ type SignUpResult struct {
 	Confirmed bool `json:"confirmed"`
 }
 
+// HTTPError preserves the response status so background reporters can stop
+// retrying revoked or unauthenticated credentials while retaining data for a
+// later successful registration.
+type HTTPError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *HTTPError) Error() string { return e.Message }
+
+// DeviceRegistration is the public metadata needed to bind this installation
+// to the signed-in Earnbear account. The server derives the user identity from
+// the HttpOnly Cognito session; the desktop never sends or stores AWS secrets.
+type DeviceRegistration struct {
+	DeviceID        string `json:"deviceId"`
+	AppVersion      string `json:"appVersion"`
+	ProtocolVersion string `json:"protocolVersion"`
+	Platform        string `json:"platform"`
+	Integration     string `json:"integration"`
+}
+
+// DeviceRegistrationResult contains the expiring proof accepted by the
+// Mellowtel node gateway. It is kept in memory and refreshed before sharing.
+type DeviceRegistrationResult struct {
+	DeviceToken string `json:"deviceToken"`
+	LinkedAt    string `json:"linkedAt"`
+}
+
+// ClientActivity is one provisional completion record inside a durable batch.
+type ClientActivity struct {
+	ActivityID string `json:"activityId"`
+	BytesUsed  int64  `json:"bytesUsed"`
+	OccurredAt string `json:"occurredAt"`
+}
+
+// ClientActivityBatch amortizes authentication and ingestion work across up
+// to 1,000 provisional completion records without uploading per-job details.
+type ClientActivityBatch struct {
+	DeviceID       string `json:"deviceId"`
+	DeviceToken    string `json:"deviceToken"`
+	BatchID        string `json:"batchId"`
+	ActivityCount  int    `json:"activityCount"`
+	ActivityBytes  int64  `json:"activityBytes"`
+	FirstOccurred  string `json:"firstOccurredAt"`
+	LastOccurred   string `json:"lastOccurredAt"`
+	ActivityDigest string `json:"activityDigest"`
+}
+
 type storedSession struct {
 	Email   string            `json:"email"`
 	Cookies map[string]string `json:"cookies"`
@@ -68,6 +116,30 @@ func (c *Client) SignUp(email, password string) (SignUpResult, error) {
 		return SignUpResult{}, err
 	}
 	return SignUpResult{Confirmed: response.Confirmed}, nil
+}
+
+// RegisterDevice links a stable desktop device ID to the authenticated user.
+// This request goes through earnbear.app so credentials and AWS signing remain
+// on trusted server infrastructure.
+func (c *Client) RegisterDevice(registration DeviceRegistration) (DeviceRegistrationResult, error) {
+	var response struct {
+		Success     bool   `json:"success"`
+		DeviceToken string `json:"deviceToken"`
+		LinkedAt    string `json:"linkedAt"`
+	}
+	if err := c.post("/api/devices/register", registration, &response); err != nil {
+		return DeviceRegistrationResult{}, err
+	}
+	if strings.TrimSpace(response.DeviceToken) == "" {
+		return DeviceRegistrationResult{}, errors.New("Earnbear did not return a device credential")
+	}
+	return DeviceRegistrationResult{DeviceToken: response.DeviceToken, LinkedAt: response.LinkedAt}, nil
+}
+
+// RecordClientActivityBatch sends deduplicated, non-monetary completion
+// signals. AWS accepts the batch into a queue before processing it.
+func (c *Client) RecordClientActivityBatch(batch ClientActivityBatch) error {
+	return c.post("/api/rewards/activity", batch, nil)
 }
 
 func (c *Client) ConfirmSignUp(email, code string) error {
@@ -180,7 +252,7 @@ func (c *Client) post(path string, body any, target any) error {
 		if envelope.Message == "" {
 			envelope.Message = "Earnbear could not complete that request."
 		}
-		return errors.New(envelope.Message)
+		return &HTTPError{StatusCode: response.StatusCode, Message: envelope.Message}
 	}
 	if target != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, target); err != nil {

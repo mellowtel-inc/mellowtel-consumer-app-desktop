@@ -1,0 +1,112 @@
+# Earnbear desktop ↔ AWS integration contract
+
+The desktop must not call the affiliate Lambda directly and must never contain
+an AWS HMAC secret. Its only authenticated control-plane endpoint is
+`https://earnbear.app`, which validates the existing HttpOnly Cognito session
+and signs any AWS request server-side.
+
+## Implemented on this branch
+
+Before sharing starts, the desktop calls:
+
+```http
+POST /api/devices/register
+Cookie: earnbear_access=...; earnbear_refresh=...
+Content-Type: application/json
+
+{
+  "deviceId": "mllwtl_consumer_abc123",
+  "appVersion": "0.1.0-mvp",
+  "protocolVersion": "700.0.29",
+  "platform": "darwin",
+  "integration": "consumer"
+}
+```
+
+The server must derive the user ID from the validated Cognito session, upsert
+the device-to-user link, and return an opaque, expiring credential:
+
+```json
+{
+  "success": true,
+  "deviceToken": "opaque-short-lived-proof",
+  "linkedAt": "2026-08-11T10:00:00Z"
+}
+```
+
+The desktop holds that token in memory and sends it as
+`X-Earnbear-Device-Token` on both the Mellowtel WebSocket handshake and approval
+checks. Do not place the proof in URL query parameters, where proxies and logs
+commonly retain it.
+
+After Mellowtel's result endpoint accepts a completed job, the desktop appends
+a SHA-256-derived activity ID and byte count to a permission-restricted local
+write-ahead log. One uploader sends a compact summary of up to 1,000 activities
+every six hours, or immediately when the batch fills, with randomized timing
+and exponential retry backoff to `POST /api/rewards/activity`. The summary
+contains a count, byte total, time bounds, and a SHA-256 digest instead of the
+individual job records. A batch is removed locally only after the server
+accepts it into SQS, so application restarts and temporary outages do not lose
+activity. Device credentials remain memory-only. Reports are deduplicated and
+visible as provisional activity. They do not create pending or withdrawable
+dollars: a modified desktop can fabricate client events, and no approved
+per-job monetary rate currently exists.
+
+## Companion server deployed
+
+The companion Earnbear website/backend implementation now provides:
+
+1. Authenticated Cloudflare route `POST /api/devices/register`.
+2. AWS Lambda + DynamoDB device registry with an immutable device-to-Cognito
+   account mapping.
+3. Random opaque device credentials whose SHA-256 digests are stored in AWS.
+   Credentials expire after 30 days and are rotated whenever sharing starts.
+4. Service-only `POST /v1/devices/verify` for gateway-side credential checks.
+5. An idempotent, micro-dollar rewards ledger ingress for the trusted Mellowtel
+   result/revenue service.
+6. Device removal that revokes the current credential, hides the device from
+   the active dashboard, and retains a tombstone so it cannot silently relink.
+7. Encrypted SQS ingestion with a dead-letter queue, bounded processor
+   concurrency, 14-day raw batch expiry, 400-day daily investigation records,
+   and lifetime profile aggregates suitable for approximately one million
+   installed devices.
+
+These pieces are deployed behind `earnbear.app` and the AWS production stack in
+`us-east-1`. Cognito remains the identity issuer and runs on its Lite tier.
+
+## Server work still required before release
+
+1. Make `ws.mellow.tel` and `api.mellow.tel/approval` call the AWS verification
+   endpoint and reject a missing, expired, or mismatched credential before
+   accepting work from the node.
+2. Have the trusted Mellowtel result/revenue service—not the desktop—emit
+   idempotent verified earnings events into the AWS rewards ledger.
+3. Decide whether the gateway should cache successful verification briefly to
+   avoid one Lambda call per approval or socket reconnect.
+
+## Dashboard endpoints implemented locally
+
+- `GET /api/devices`: signed-in user's devices, last seen, app version, state.
+- `GET /api/rewards/summary`: verified, pending, promotional, and withdrawable
+  balances. Never calculate money from client-reported job counts.
+
+The account dashboard reads both through `GET /api/account/overview`.
+
+## Payout endpoints still needed
+
+- `POST /api/payouts/onboarding-session`: creates the provider-hosted recipient
+  onboarding URL/widget session.
+- `POST /api/payouts/withdraw`: enforces method-specific minimums, the first
+  payout hold, velocity limits, identity state, and idempotency.
+- Provider webhooks: authoritative paid/failed/reversed state transitions.
+
+Recommended reward states are `pending`, `verified`, `withdrawable`, `reserved`,
+`paid`, and `reversed`. Promotional credits must remain separate from verified
+bandwidth earnings so a $2 welcome credit cannot unlock its own cashout.
+
+## Trust boundary
+
+The desktop may report liveness and display server balances, but it is never an
+authority for earnings, fraud clearance, payout eligibility, or payout status.
+Bank details and wallet onboarding data should go directly to the chosen payout
+provider; Earnbear stores provider recipient and transfer IDs only.

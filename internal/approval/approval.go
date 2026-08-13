@@ -20,6 +20,7 @@ const CheckInterval = 30 * time.Minute
 // Params carries the query parameters the endpoint expects.
 type Params struct {
 	DeviceID      string
+	DeviceToken   string
 	Version       string
 	Platform      string
 	SpeedDownload int
@@ -65,6 +66,9 @@ func (c *Checker) Check(ctx context.Context) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return false, fmt.Errorf("build approval request: %w", err)
+	}
+	if c.params.DeviceToken != "" {
+		req.Header.Set("X-Earnbear-Device-Token", c.params.DeviceToken)
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {

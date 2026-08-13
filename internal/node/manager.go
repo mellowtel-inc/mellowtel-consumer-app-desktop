@@ -64,12 +64,21 @@ type Status struct {
 	EarningsReady    bool    `json:"earningsReady"`
 }
 
+// AcceptedActivity describes a job whose result endpoint returned success.
+// It is suitable for provisional progress only, not authoritative earnings.
+type AcceptedActivity struct {
+	RecordID   string
+	BytesUsed  int64
+	OccurredAt time.Time
+}
+
 // Manager orchestrates the node lifecycle.
 type Manager struct {
-	log       zerolog.Logger
-	cfg       *config.Config
-	configDir string
-	deviceID  string
+	log         zerolog.Logger
+	cfg         *config.Config
+	configDir   string
+	deviceID    string
+	deviceToken string
 
 	fetcher   *fetch.Client
 	md        *markdown.Converter
@@ -79,7 +88,8 @@ type Manager struct {
 	chromePath  string
 	chromeFound bool
 
-	onStatus func(Status)
+	onStatus   func(Status)
+	onActivity func(AcceptedActivity)
 
 	stats    *stats.Store
 	notifier *notify.Notifier
@@ -157,8 +167,23 @@ func (m *Manager) SetOnStatus(fn func(Status)) {
 	m.mu.Unlock()
 }
 
+// SetOnActivity registers a best-effort observer for accepted job results.
+func (m *Manager) SetOnActivity(fn func(AcceptedActivity)) {
+	m.mu.Lock()
+	m.onActivity = fn
+	m.mu.Unlock()
+}
+
 // ChromeFound reports whether a Chrome installation was detected.
 func (m *Manager) ChromeFound() bool { return m.chromeFound }
+
+// SetDeviceToken installs the expiring proof returned by Earnbear's device
+// registration endpoint. Call it before Connect; it is never persisted.
+func (m *Manager) SetDeviceToken(token string) {
+	m.mu.Lock()
+	m.deviceToken = token
+	m.mu.Unlock()
+}
 
 // Status returns the current status snapshot.
 func (m *Manager) Status() Status {
@@ -229,6 +254,7 @@ func (m *Manager) Connect() error {
 
 	m.mu.Lock()
 	ctx := m.runCtx
+	deviceToken := m.deviceToken
 	m.mu.Unlock()
 
 	m.log.Info().Msg("connecting node")
@@ -261,6 +287,7 @@ func (m *Manager) Connect() error {
 		Log:            m.log,
 		BaseURL:        m.cfg.Endpoints.WebSocketURL,
 		DeviceID:       m.deviceID,
+		DeviceToken:    deviceToken,
 		Version:        m.cfg.ProtocolVersion,
 		PlatformPrefix: m.cfg.PlatformPrefix,
 		SpeedDownload:  500,
@@ -280,6 +307,7 @@ func (m *Manager) Connect() error {
 	// Approval polling.
 	checker := approval.New(m.log, m.cfg.Endpoints.ApprovalURL, approval.Params{
 		DeviceID:      m.deviceID,
+		DeviceToken:   deviceToken,
 		Version:       m.cfg.ProtocolVersion,
 		Platform:      m.cfg.PlatformPrefix,
 		SpeedDownload: 500,
@@ -530,6 +558,12 @@ func (m *Manager) runJob(ctx context.Context, exec *executor.Executor, req *job.
 			s.Detail = encouragement(s.JobsCompleted)
 		}
 	})
+	m.mu.Lock()
+	onActivity := m.onActivity
+	m.mu.Unlock()
+	if onActivity != nil {
+		onActivity(AcceptedActivity{RecordID: req.RecordID, BytesUsed: outcome.BytesUsed, OccurredAt: time.Now().UTC()})
+	}
 
 	if msg := notify.Milestone(m.stats.Totals().JobsCompleted); msg != "" {
 		m.notifier.Send("Mellowtel", msg)
