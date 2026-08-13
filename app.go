@@ -159,8 +159,8 @@ func (a *App) SignIn(email, password string) (account.State, error) {
 }
 
 // SignUp creates an account and reports whether email confirmation is needed.
-func (a *App) SignUp(email, password string) (account.SignUpResult, error) {
-	return a.account.SignUp(email, password)
+func (a *App) SignUp(email, password, affiliateCode string) (account.SignUpResult, error) {
+	return a.account.SignUp(email, password, affiliateCode)
 }
 
 // ConfirmSignUp verifies the six-digit code sent to the user's email.

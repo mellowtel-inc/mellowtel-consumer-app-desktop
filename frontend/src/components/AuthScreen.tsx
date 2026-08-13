@@ -35,6 +35,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
   const [password, setPassword] = useState('');
   const [repeatPassword, setRepeatPassword] = useState('');
   const [code, setCode] = useState('');
+  const [affiliateCode, setAffiliateCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -60,7 +61,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
         return;
       }
       if (mode === 'signup') {
-        const result = await API.signUp(email, password);
+        const result = await API.signUp(email, password, affiliateCode);
         if (result.confirmed) {
           switchMode('signin');
           setMessage('Account created. Sign in to continue.');
@@ -136,10 +137,16 @@ export default function AuthScreen({ onAuthenticated }: Props) {
           )}
 
           {mode === 'signup' && (
-            <label>
-              <span>Confirm password</span>
-              <input type="password" value={repeatPassword} onChange={(event) => setRepeatPassword(event.target.value)} autoComplete="new-password" minLength={8} placeholder="Repeat your password" required />
-            </label>
+            <>
+              <label>
+                <span>Confirm password</span>
+                <input type="password" value={repeatPassword} onChange={(event) => setRepeatPassword(event.target.value)} autoComplete="new-password" minLength={8} placeholder="Repeat your password" required />
+              </label>
+              <label>
+                <span>Creator code <small>(optional)</small></span>
+                <input type="text" value={affiliateCode} onChange={(event) => setAffiliateCode(event.target.value.toUpperCase())} autoComplete="off" maxLength={32} placeholder="CREATOR" />
+              </label>
+            </>
           )}
 
           {error && <p className="desktop-auth-feedback error" role="alert">{error}</p>}
