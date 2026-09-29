@@ -6,6 +6,8 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"sync"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -27,11 +29,16 @@ type App struct {
 	tray      *tray.Tray
 	account   *account.Client
 
-	configDir string
-	logPath   string
-	logCloser io.Closer
-	execPath  string
+	configDir         string
+	logPath           string
+	logCloser         io.Closer
+	execPath          string
+	activitySyncMu    sync.Mutex
+	activityTimerMu   sync.Mutex
+	activitySyncTimer *time.Timer
 }
+
+const activitySyncInterval = 15 * time.Minute
 
 // startup is invoked by Wails once the runtime is ready. All wiring that needs
 // the runtime context (event emission, auto-connect) happens here.
@@ -44,6 +51,7 @@ func (a *App) startup(ctx context.Context) {
 		if a.tray != nil {
 			a.tray.SetConnected(s.Connection == "connected")
 		}
+		a.scheduleActivitySync()
 	})
 
 	if !a.manager.ChromeFound() {
@@ -95,6 +103,7 @@ func (a *App) Connect() error {
 func (a *App) Disconnect() {
 	log.Info().Msg("frontend requested disconnect")
 	a.manager.Disconnect()
+	a.queueActivitySync()
 }
 
 // Toggle flips connection state and returns the resulting connected flag.
@@ -104,6 +113,7 @@ func (a *App) Toggle() bool {
 	}
 	if a.manager.IsConnected() {
 		a.manager.DisconnectAsync()
+		a.queueActivitySync()
 		return false
 	}
 	// A previous disconnect may still be draining browser and worker resources.
@@ -119,12 +129,89 @@ func (a *App) Toggle() bool {
 
 // GetAuthState restores and validates the user's Earnbear account session.
 func (a *App) GetAuthState() (account.State, error) {
-	return a.account.GetState()
+	state, err := a.account.GetState()
+	if err == nil && state.Authenticated {
+		a.queueActivitySync()
+	}
+	return state, err
 }
 
 // SignIn authenticates through Earnbear's server-side Cognito integration.
 func (a *App) SignIn(email, password string) (account.State, error) {
-	return a.account.SignIn(email, password)
+	state, err := a.account.SignIn(email, password)
+	if err == nil && state.Authenticated {
+		a.queueActivitySync()
+	}
+	return state, err
+}
+
+// scheduleActivitySync coalesces frequent job status updates. Full API-sized
+// batches upload immediately; smaller tails flush at most once every 15 minutes.
+// The durable local cursor means a quit, failed request, or daily limit cannot
+// lose completed activity.
+func (a *App) scheduleActivitySync() {
+	if !a.account.HasSession() {
+		return
+	}
+	if a.manager.PendingActivity().ActivityCount >= 1000 {
+		a.queueActivitySync()
+		return
+	}
+	a.activityTimerMu.Lock()
+	defer a.activityTimerMu.Unlock()
+	if a.activitySyncTimer != nil {
+		return
+	}
+	a.activitySyncTimer = time.AfterFunc(activitySyncInterval, func() {
+		a.activityTimerMu.Lock()
+		a.activitySyncTimer = nil
+		a.activityTimerMu.Unlock()
+		a.queueActivitySync()
+	})
+}
+
+// queueActivitySync asynchronously mirrors locally persisted completed jobs to
+// the signed-in account's provisional points ledger. TryLock ensures lifecycle
+// flushes and the interval timer cannot start concurrent uploaders.
+func (a *App) queueActivitySync() {
+	a.activityTimerMu.Lock()
+	if a.activitySyncTimer != nil {
+		a.activitySyncTimer.Stop()
+		a.activitySyncTimer = nil
+	}
+	a.activityTimerMu.Unlock()
+	go func() {
+		if !a.activitySyncMu.TryLock() {
+			return
+		}
+		defer a.activitySyncMu.Unlock()
+		if !a.account.HasSession() {
+			return
+		}
+		for range 10 {
+			snapshot := a.manager.PendingActivity()
+			if snapshot.ActivityCount == 0 {
+				return
+			}
+			err := a.account.SyncActivity(
+				a.manager.Status().DeviceID,
+				config.AppVersion,
+				runtime.GOOS,
+				a.cfg.Integration,
+				snapshot.FromJobs,
+				snapshot.ToJobs,
+				snapshot.ActivityCount,
+				snapshot.FromBytes,
+				snapshot.ToBytes,
+				snapshot.ActivityBytes,
+			)
+			if err != nil {
+				log.Warn().Err(err).Msg("provisional activity sync deferred")
+				return
+			}
+			a.manager.MarkActivitySynced(snapshot)
+		}
+	}()
 }
 
 // SignUp creates an account and reports whether email confirmation is needed.
@@ -140,6 +227,16 @@ func (a *App) ConfirmSignUp(email, code string) error {
 // ResendSignUpCode sends a fresh email verification code.
 func (a *App) ResendSignUpCode(email string) error {
 	return a.account.ResendSignUpCode(email)
+}
+
+// JoinWaitlist creates or restores a waitlist place directly from desktop.
+func (a *App) JoinWaitlist(email, referralCode, affiliateCode string) (account.WaitlistResult, error) {
+	return a.account.JoinWaitlist(email, referralCode, affiliateCode)
+}
+
+// SaveWaitlistProfile completes the same onboarding profile used by the site.
+func (a *App) SaveWaitlistProfile(email, onboardingToken, country string, devices []string, claimedX, claimedTikTok, claimedDiscord, onboardingCompleted bool) (account.WaitlistProfileResult, error) {
+	return a.account.SaveWaitlistProfile(email, onboardingToken, country, devices, claimedX, claimedTikTok, claimedDiscord, onboardingCompleted)
 }
 
 // SignOut clears the local session and stops bandwidth sharing immediately.

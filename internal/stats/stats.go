@@ -15,12 +15,25 @@ const fileName = "stats.json"
 
 // Totals is the persisted lifetime record.
 type Totals struct {
-	JobsCompleted int64 `json:"jobsCompleted"`
-	JobsFailed    int64 `json:"jobsFailed"`
-	BytesUsed     int64 `json:"bytesUsed"`
+	JobsCompleted       int64 `json:"jobsCompleted"`
+	JobsFailed          int64 `json:"jobsFailed"`
+	BytesUsed           int64 `json:"bytesUsed"`
+	SyncedJobsCompleted int64 `json:"syncedJobsCompleted,omitempty"`
+	SyncedBytesUsed     int64 `json:"syncedBytesUsed,omitempty"`
 	// EarnedMicroUSD is lifetime earnings in millionths of a dollar. It stays
 	// zero until the earnings ledger backend exists — we never invent a figure.
 	EarnedMicroUSD int64 `json:"earnedMicroUsd"`
+}
+
+// ActivitySnapshot is one bounded, retry-safe range of locally persisted MVP
+// activity waiting to be copied to the user's Earnbear account.
+type ActivitySnapshot struct {
+	FromJobs      int64
+	ToJobs        int64
+	ActivityCount int64
+	FromBytes     int64
+	ToBytes       int64
+	ActivityBytes int64
 }
 
 // Store persists Totals to disk, flushing after each update.
@@ -52,6 +65,45 @@ func (s *Store) Totals() Totals {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.totals
+}
+
+// PendingActivity returns at most one API-sized batch. The cursor advances
+// only after the server accepts the deterministic batch, so retries are safe.
+func (s *Store) PendingActivity() ActivitySnapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	remainingJobs := s.totals.JobsCompleted - s.totals.SyncedJobsCompleted
+	if remainingJobs <= 0 {
+		return ActivitySnapshot{}
+	}
+	count := min(remainingJobs, 1000)
+	remainingBytes := max(int64(0), s.totals.BytesUsed-s.totals.SyncedBytesUsed)
+	batchBytes := remainingBytes
+	if count < remainingJobs {
+		batchBytes = remainingBytes * count / remainingJobs
+	}
+	return ActivitySnapshot{
+		FromJobs:      s.totals.SyncedJobsCompleted,
+		ToJobs:        s.totals.SyncedJobsCompleted + count,
+		ActivityCount: count,
+		FromBytes:     s.totals.SyncedBytesUsed,
+		ToBytes:       s.totals.SyncedBytesUsed + batchBytes,
+		ActivityBytes: batchBytes,
+	}
+}
+
+// MarkActivitySynced commits the local cursor after the server acknowledges a
+// batch. Stale acknowledgements cannot move the cursor backwards.
+func (s *Store) MarkActivitySynced(snapshot ActivitySnapshot) {
+	s.mu.Lock()
+	if snapshot.ToJobs > s.totals.SyncedJobsCompleted {
+		s.totals.SyncedJobsCompleted = min(snapshot.ToJobs, s.totals.JobsCompleted)
+	}
+	if snapshot.ToBytes > s.totals.SyncedBytesUsed {
+		s.totals.SyncedBytesUsed = min(snapshot.ToBytes, s.totals.BytesUsed)
+	}
+	s.mu.Unlock()
+	s.save()
 }
 
 // RecordSuccess adds a completed job and its traffic.

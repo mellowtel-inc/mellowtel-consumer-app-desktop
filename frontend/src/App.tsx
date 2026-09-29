@@ -143,11 +143,12 @@ export default function App() {
 
       <main className="main">
         <section className="earnings">
-          <div className="earnings-label">Total earned</div>
+          <div className="earnings-label">Provisional points</div>
           <div className="earnings-value">{formatPoints(status.totalJobsCompleted)}</div>
           <div className="earnings-session">
             + {formatPoints(status.jobsCompleted)} this session
           </div>
+          <div className="earnings-note">Tracked on this device · finalized after verification</div>
         </section>
 
         <div className={`sharing-stage ${active ? 'active' : 'paused'}`}>

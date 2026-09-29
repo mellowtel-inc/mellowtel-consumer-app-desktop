@@ -54,6 +54,46 @@ func TestEarningsStayZero(t *testing.T) {
 	}
 }
 
+func TestPendingActivityPersistsAcknowledgedCursor(t *testing.T) {
+	dir := t.TempDir()
+	s, _ := Load(dir)
+	for range 3 {
+		s.RecordSuccess(250)
+	}
+
+	batch := s.PendingActivity()
+	if batch.ActivityCount != 3 || batch.ActivityBytes != 750 || batch.FromJobs != 0 || batch.ToJobs != 3 {
+		t.Fatalf("unexpected pending batch: %+v", batch)
+	}
+	s.MarkActivitySynced(batch)
+	if pending := s.PendingActivity(); pending.ActivityCount != 0 {
+		t.Fatalf("acknowledged activity remained pending: %+v", pending)
+	}
+
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending := reloaded.PendingActivity(); pending.ActivityCount != 0 {
+		t.Fatalf("sync cursor did not persist: %+v", pending)
+	}
+}
+
+func TestPendingActivityIsBounded(t *testing.T) {
+	s, _ := Load(t.TempDir())
+	for range 1005 {
+		s.RecordSuccess(1)
+	}
+	first := s.PendingActivity()
+	if first.ActivityCount != 1000 {
+		t.Fatalf("first batch count = %d, want 1000", first.ActivityCount)
+	}
+	s.MarkActivitySynced(first)
+	if second := s.PendingActivity(); second.ActivityCount != 5 {
+		t.Fatalf("second batch count = %d, want 5", second.ActivityCount)
+	}
+}
+
 func TestCorruptFileDoesNotFail(t *testing.T) {
 	dir := t.TempDir()
 	if err := writeFile(dir+"/"+fileName, "{not json"); err != nil {

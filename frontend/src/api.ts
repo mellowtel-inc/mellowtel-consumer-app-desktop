@@ -38,6 +38,34 @@ export interface SignUpResult {
   confirmed: boolean;
 }
 
+export interface WaitlistSocialClaims {
+  x: boolean;
+  tiktok: boolean;
+  discord: boolean;
+}
+
+export interface WaitlistProgress {
+  country: string;
+  devices: string[];
+  socialClaims: WaitlistSocialClaims;
+  profileCompleted: boolean;
+  onboardingCompleted: boolean;
+  acceptedInviteCount: number;
+  pendingReferralPoints: number;
+}
+
+export interface WaitlistResult {
+  alreadyJoined: boolean;
+  onboardingToken: string;
+  inviteUrl: string;
+  referralAccepted: boolean;
+  progress?: WaitlistProgress | null;
+}
+
+export interface WaitlistProfileResult {
+  socialBonusPoints: number;
+}
+
 export type BandwidthCap = 'unlimited' | '5gb' | '1gb';
 export type SharingIntensity = 'low' | 'medium' | 'max';
 
@@ -73,6 +101,8 @@ type AppBridge = {
   SignUp(email: string, password: string, affiliateCode: string): Promise<SignUpResult>;
   ConfirmSignUp(email: string, code: string): Promise<void>;
   ResendSignUpCode(email: string): Promise<void>;
+  JoinWaitlist(email: string, referralCode: string, affiliateCode: string): Promise<WaitlistResult>;
+  SaveWaitlistProfile(email: string, onboardingToken: string, country: string, devices: string[], claimedX: boolean, claimedTikTok: boolean, claimedDiscord: boolean, onboardingCompleted: boolean): Promise<WaitlistProfileResult>;
   SignOut(): Promise<void>;
 };
 
@@ -112,6 +142,9 @@ export const API = {
   signUp: (email: string, password: string, affiliateCode = '') => app().SignUp(email, password, affiliateCode),
   confirmSignUp: (email: string, code: string) => app().ConfirmSignUp(email, code),
   resendSignUpCode: (email: string) => app().ResendSignUpCode(email),
+  joinWaitlist: (email: string, referralCode = '', affiliateCode = '') => app().JoinWaitlist(email, referralCode, affiliateCode),
+  saveWaitlistProfile: (email: string, onboardingToken: string, country: string, devices: string[], claims: WaitlistSocialClaims, onboardingCompleted: boolean) =>
+    app().SaveWaitlistProfile(email, onboardingToken, country, devices, claims.x, claims.tiktok, claims.discord, onboardingCompleted),
   signOut: () => app().SignOut(),
 };
 

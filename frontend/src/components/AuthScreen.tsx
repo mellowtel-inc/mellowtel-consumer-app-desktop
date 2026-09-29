@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { API, AuthState } from '../api';
 import earnbearMark from '../assets/brand/earnbear-mark.png';
 import earnbearToken from '../assets/brand/earnbear-token.png';
+import WaitlistFlow from './WaitlistFlow';
 
 type Mode = 'signin' | 'signup' | 'confirm';
 
@@ -39,6 +40,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [showWaitlist, setShowWaitlist] = useState(false);
 
   const switchMode = (next: Mode) => {
     setMode(next);
@@ -111,7 +113,7 @@ export default function AuthScreen({ onAuthenticated }: Props) {
         <img className="desktop-auth-coin auth-coin-two" src={earnbearToken} alt="" />
       </div>
 
-      <section className="desktop-auth-panel">
+      {showWaitlist ? <WaitlistFlow onBack={() => setShowWaitlist(false)} /> : <section className="desktop-auth-panel">
         <div className="desktop-auth-copy">
           <span>{current.eyebrow}</span>
           <h1>{current.title}</h1>
@@ -156,11 +158,11 @@ export default function AuthScreen({ onAuthenticated }: Props) {
         </form>
 
         <div className="desktop-auth-links">
-          {mode === 'signin' && <><button onClick={() => API.openURL('https://earnbear.app/auth?mode=forgot')}>Forgot password?</button><p>New here? <button onClick={() => switchMode('signup')}>Create an account</button></p></>}
+          {mode === 'signin' && <><button onClick={() => API.openURL('https://earnbear.app/auth?mode=forgot')}>Forgot password?</button><p>Waiting for access? <button onClick={() => setShowWaitlist(true)}>Join or check the waitlist</button></p><p>Have an access email? <button onClick={() => switchMode('signup')}>Create an account</button></p></>}
           {mode === 'signup' && <p>Already have an account? <button onClick={() => switchMode('signin')}>Sign in</button></p>}
           {mode === 'confirm' && <><button onClick={resend} disabled={busy}>Send another code</button><p><button onClick={() => switchMode('signin')}>Back to sign in</button></p></>}
         </div>
-      </section>
+      </section>}
     </div>
   );
 }

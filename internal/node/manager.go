@@ -170,6 +170,18 @@ func (m *Manager) Status() Status {
 	return s
 }
 
+// PendingActivity returns the next persisted desktop activity range waiting
+// to be reflected as provisional points in the user's web account.
+func (m *Manager) PendingActivity() stats.ActivitySnapshot {
+	return m.stats.PendingActivity()
+}
+
+// MarkActivitySynced advances the durable cursor after the account API accepts
+// the corresponding deterministic activity batch.
+func (m *Manager) MarkActivitySynced(snapshot stats.ActivitySnapshot) {
+	m.stats.MarkActivitySynced(snapshot)
+}
+
 // emit publishes a status update while holding no locks the callback might need.
 func (m *Manager) emit(mutate func(*Status)) {
 	m.mu.Lock()
