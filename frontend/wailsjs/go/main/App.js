@@ -46,6 +46,10 @@ export function IsChromeInstalled() {
   return window['go']['main']['App']['IsChromeInstalled']();
 }
 
+export function JoinWaitlist(arg1, arg2, arg3) {
+  return window['go']['main']['App']['JoinWaitlist'](arg1, arg2, arg3);
+}
+
 export function OpenLogsFolder() {
   return window['go']['main']['App']['OpenLogsFolder']();
 }
@@ -64,6 +68,10 @@ export function ResendSignUpCode(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SaveWaitlistProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['SaveWaitlistProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
 export function ShowWindow() {

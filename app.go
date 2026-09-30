@@ -176,6 +176,16 @@ func (a *App) ResendSignUpCode(email string) error {
 	return a.account.ResendSignUpCode(email)
 }
 
+// JoinWaitlist creates or restores a waitlist place directly from desktop.
+func (a *App) JoinWaitlist(email, referralCode, affiliateCode string) (account.WaitlistResult, error) {
+	return a.account.JoinWaitlist(email, referralCode, affiliateCode)
+}
+
+// SaveWaitlistProfile completes the same onboarding profile used by the site.
+func (a *App) SaveWaitlistProfile(email, onboardingToken, country string, devices []string, claimedX, claimedTikTok, claimedDiscord, onboardingCompleted bool) (account.WaitlistProfileResult, error) {
+	return a.account.SaveWaitlistProfile(email, onboardingToken, country, devices, claimedX, claimedTikTok, claimedDiscord, onboardingCompleted)
+}
+
 // SignOut clears the local session and stops bandwidth sharing immediately.
 func (a *App) SignOut() error {
 	a.manager.Disconnect()

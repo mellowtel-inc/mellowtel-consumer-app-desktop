@@ -30,6 +30,34 @@ type SignUpResult struct {
 	Confirmed bool `json:"confirmed"`
 }
 
+type WaitlistSocialClaims struct {
+	X       bool `json:"x"`
+	TikTok  bool `json:"tiktok"`
+	Discord bool `json:"discord"`
+}
+
+type WaitlistProgress struct {
+	Country               string               `json:"country"`
+	Devices               []string             `json:"devices"`
+	SocialClaims          WaitlistSocialClaims `json:"socialClaims"`
+	ProfileCompleted      bool                 `json:"profileCompleted"`
+	OnboardingCompleted   bool                 `json:"onboardingCompleted"`
+	AcceptedInviteCount   int                  `json:"acceptedInviteCount"`
+	PendingReferralPoints int                  `json:"pendingReferralPoints"`
+}
+
+type WaitlistResult struct {
+	AlreadyJoined    bool              `json:"alreadyJoined"`
+	OnboardingToken  string            `json:"onboardingToken"`
+	InviteURL        string            `json:"inviteUrl"`
+	ReferralAccepted bool              `json:"referralAccepted"`
+	Progress         *WaitlistProgress `json:"progress"`
+}
+
+type WaitlistProfileResult struct {
+	SocialBonusPoints int `json:"socialBonusPoints"`
+}
+
 // HTTPError preserves the response status so background reporters can stop
 // retrying revoked or unauthenticated credentials while retaining data for a
 // later successful registration.
@@ -150,6 +178,38 @@ func (c *Client) ConfirmSignUp(email, code string) error {
 
 func (c *Client) ResendSignUpCode(email string) error {
 	return c.post("/api/auth/resend", map[string]string{"email": email}, nil)
+}
+
+// JoinWaitlist creates or restores the user's existing waitlist entry. The
+// returned onboarding token is scoped to this email and authorizes profile
+// updates without creating an account session.
+func (c *Client) JoinWaitlist(email, referralCode, affiliateCode string) (WaitlistResult, error) {
+	var response WaitlistResult
+	if err := c.post("/api/waitlist", map[string]string{
+		"email": email, "waitlistReferralCode": referralCode, "affiliateCode": affiliateCode,
+	}, &response); err != nil {
+		return WaitlistResult{}, err
+	}
+	return response, nil
+}
+
+// SaveWaitlistProfile mirrors the website onboarding payload so desktop joins
+// feed the same country, device, social, and completion analytics.
+func (c *Client) SaveWaitlistProfile(email, onboardingToken, country string, devices []string, claimedX, claimedTikTok, claimedDiscord, onboardingCompleted bool) (WaitlistProfileResult, error) {
+	var response WaitlistProfileResult
+	if err := c.post("/api/waitlist-profile", map[string]any{
+		"email":           email,
+		"onboardingToken": onboardingToken,
+		"country":         country,
+		"devices":         devices,
+		"socialClaims": map[string]bool{
+			"x": claimedX, "tiktok": claimedTikTok, "discord": claimedDiscord,
+		},
+		"onboardingCompleted": onboardingCompleted,
+	}, &response); err != nil {
+		return WaitlistProfileResult{}, err
+	}
+	return response, nil
 }
 
 func (c *Client) SignIn(email, password string) (State, error) {

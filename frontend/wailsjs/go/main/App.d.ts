@@ -26,6 +26,8 @@ export function GetVersion():Promise<string>;
 
 export function IsChromeInstalled():Promise<boolean>;
 
+export function JoinWaitlist(arg1:string,arg2:string,arg3:string):Promise<account.WaitlistResult>;
+
 export function OpenLogsFolder():Promise<void>;
 
 export function OpenURL(arg1:string):Promise<void>;
@@ -35,6 +37,8 @@ export function Quit():Promise<void>;
 export function ResendSignUpCode(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:config.Settings):Promise<void>;
+
+export function SaveWaitlistProfile(arg1:string,arg2:string,arg3:string,arg4:Array<string>,arg5:boolean,arg6:boolean,arg7:boolean,arg8:boolean):Promise<account.WaitlistProfileResult>;
 
 export function ShowWindow():Promise<void>;
 

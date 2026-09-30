@@ -105,6 +105,58 @@ func TestSignUpAndConfirm(t *testing.T) {
 	}
 }
 
+func TestWaitlistOnboarding(t *testing.T) {
+	var joined, profiled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/waitlist":
+			joined = true
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["email"] != "wait@example.com" || payload["waitlistReferralCode"] != "abc123abc123" {
+				t.Fatalf("unexpected waitlist payload: %+v", payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": true, "onboardingToken": "token", "inviteUrl": "https://earnbear.app/invite/test",
+				"progress": map[string]any{"country": "Portugal", "devices": []string{"macos"}, "socialClaims": map[string]bool{"x": true}, "profileCompleted": true, "acceptedInviteCount": 2, "pendingReferralPoints": 1000},
+			})
+		case "/api/waitlist-profile":
+			profiled = true
+			var payload struct {
+				Email               string          `json:"email"`
+				Devices             []string        `json:"devices"`
+				SocialClaims        map[string]bool `json:"socialClaims"`
+				OnboardingCompleted bool            `json:"onboardingCompleted"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Email != "wait@example.com" || len(payload.Devices) != 1 || payload.Devices[0] != "macos" || !payload.SocialClaims["discord"] || !payload.OnboardingCompleted {
+				t.Fatalf("unexpected profile payload: %+v", payload)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "socialBonusPoints": 100})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewWithBaseURL(t.TempDir(), server.URL)
+	result, err := client.JoinWaitlist("wait@example.com", "abc123abc123", "")
+	if err != nil || result.OnboardingToken != "token" || result.Progress == nil || result.Progress.AcceptedInviteCount != 2 {
+		t.Fatalf("waitlist result = %+v, err = %v", result, err)
+	}
+	profile, err := client.SaveWaitlistProfile("wait@example.com", "token", "Portugal", []string{"macos"}, false, false, true, true)
+	if err != nil || profile.SocialBonusPoints != 100 {
+		t.Fatalf("profile result = %+v, err = %v", profile, err)
+	}
+	if !joined || !profiled {
+		t.Fatal("waitlist join and profile endpoints were not both called")
+	}
+}
+
 func TestRegisterDeviceUsesAuthenticatedSession(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/devices/register" {
