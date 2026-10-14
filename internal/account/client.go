@@ -20,10 +20,12 @@ import (
 const productionBaseURL = "https://earnbear.app"
 
 type State struct {
-	Authenticated bool   `json:"authenticated"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"emailVerified"`
-	Name          string `json:"name"`
+	UserID          string `json:"userId"`
+	Authenticated   bool   `json:"authenticated"`
+	EarningApproved bool   `json:"earningApproved"`
+	Email           string `json:"email"`
+	EmailVerified   bool   `json:"emailVerified"`
+	Name            string `json:"name"`
 }
 
 type SignUpResult struct {
@@ -64,6 +66,7 @@ type WaitlistProfileResult struct {
 type HTTPError struct {
 	StatusCode int
 	Message    string
+	Code       string
 }
 
 func (e *HTTPError) Error() string { return e.Message }
@@ -72,18 +75,27 @@ func (e *HTTPError) Error() string { return e.Message }
 // to the signed-in Earnbear account. The server derives the user identity from
 // the HttpOnly Cognito session; the desktop never sends or stores AWS secrets.
 type DeviceRegistration struct {
-	DeviceID        string `json:"deviceId"`
-	AppVersion      string `json:"appVersion"`
-	ProtocolVersion string `json:"protocolVersion"`
-	Platform        string `json:"platform"`
-	Integration     string `json:"integration"`
+	DeviceID          string `json:"deviceId"`
+	AppVersion        string `json:"appVersion"`
+	ProtocolVersion   string `json:"protocolVersion"`
+	Platform          string `json:"platform"`
+	Integration       string `json:"integration"`
+	InstallationToken string `json:"installationToken,omitempty"`
 }
 
 // DeviceRegistrationResult contains the expiring proof accepted by the
-// Mellowtel node gateway. It is kept in memory and refreshed before sharing.
+// Mellowtel node gateway. The device proof stays in memory; the installation
+// proof is saved privately to authorize account switches across restarts.
 type DeviceRegistrationResult struct {
-	DeviceToken string `json:"deviceToken"`
-	LinkedAt    string `json:"linkedAt"`
+	DeviceToken       string `json:"deviceToken"`
+	LinkedAt          string `json:"linkedAt"`
+	InstallationToken string `json:"installationToken"`
+	UserID            string `json:"userId"`
+}
+
+type installationCredential struct {
+	DeviceID string `json:"deviceId"`
+	Token    string `json:"installationToken"`
 }
 
 // ClientActivity is one provisional completion record inside a durable batch.
@@ -96,6 +108,7 @@ type ClientActivity struct {
 // ClientActivityBatch amortizes authentication and ingestion work across up
 // to 1,000 provisional completion records without uploading per-job details.
 type ClientActivityBatch struct {
+	UserID         string `json:"userId,omitempty"`
 	DeviceID       string `json:"deviceId"`
 	DeviceToken    string `json:"deviceToken"`
 	BatchID        string `json:"batchId"`
@@ -112,11 +125,13 @@ type storedSession struct {
 }
 
 type Client struct {
-	baseURL string
-	path    string
-	http    *http.Client
-	mu      sync.Mutex
-	session storedSession
+	baseURL          string
+	path             string
+	installationPath string
+	operationMu      sync.Mutex // keep login/logout and activity attribution atomic
+	http             *http.Client
+	mu               sync.Mutex
+	session          storedSession
 }
 
 func New(configDir string) *Client {
@@ -125,10 +140,11 @@ func New(configDir string) *Client {
 
 func NewWithBaseURL(configDir, baseURL string) *Client {
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		path:    filepath.Join(configDir, "account-session.json"),
-		http:    &http.Client{Timeout: 15 * time.Second},
-		session: storedSession{Cookies: map[string]string{}},
+		baseURL:          strings.TrimRight(baseURL, "/"),
+		path:             filepath.Join(configDir, "account-session.json"),
+		installationPath: filepath.Join(configDir, "installation-credential.json"),
+		http:             &http.Client{Timeout: 15 * time.Second},
+		session:          storedSession{Cookies: map[string]string{}},
 	}
 	c.load()
 	return c
@@ -152,23 +168,63 @@ func (c *Client) SignUp(email, password, affiliateCode string) (SignUpResult, er
 // This request goes through earnbear.app so credentials and AWS signing remain
 // on trusted server infrastructure.
 func (c *Client) RegisterDevice(registration DeviceRegistration) (DeviceRegistrationResult, error) {
-	var response struct {
-		Success     bool   `json:"success"`
-		DeviceToken string `json:"deviceToken"`
-		LinkedAt    string `json:"linkedAt"`
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	var saved installationCredential
+	if data, err := os.ReadFile(c.installationPath); err == nil {
+		if err := json.Unmarshal(data, &saved); err != nil {
+			return DeviceRegistrationResult{}, errors.New("could not read installation credential")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return DeviceRegistrationResult{}, errors.New("could not read installation credential")
 	}
+	if saved.DeviceID == registration.DeviceID {
+		registration.InstallationToken = saved.Token
+	}
+	var response DeviceRegistrationResult
 	if err := c.post("/api/devices/register", registration, &response); err != nil {
 		return DeviceRegistrationResult{}, err
 	}
 	if strings.TrimSpace(response.DeviceToken) == "" {
 		return DeviceRegistrationResult{}, errors.New("Earnbear did not return a device credential")
 	}
-	return DeviceRegistrationResult{DeviceToken: response.DeviceToken, LinkedAt: response.LinkedAt}, nil
+	if response.InstallationToken == "" || response.UserID == "" {
+		return DeviceRegistrationResult{}, errors.New("Earnbear did not return an installation credential")
+	}
+	data, err := json.Marshal(installationCredential{DeviceID: registration.DeviceID, Token: response.InstallationToken})
+	if err != nil {
+		return DeviceRegistrationResult{}, err
+	}
+	// Save atomically, without ever placing the proof in session cookies,
+	// frontend bindings, logs, or the provisional activity outbox.
+	tmp := c.installationPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return DeviceRegistrationResult{}, errors.New("could not save installation credential")
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return DeviceRegistrationResult{}, err
+	}
+	if err := os.Rename(tmp, c.installationPath); err != nil {
+		return DeviceRegistrationResult{}, err
+	}
+	return response, nil
 }
 
 // RecordClientActivityBatch sends deduplicated, non-monetary completion
 // signals. AWS accepts the batch into a queue before processing it.
 func (c *Client) RecordClientActivityBatch(batch ClientActivityBatch) error {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	state, err := c.getState()
+	if err != nil {
+		return err
+	}
+	if !state.Authenticated || !state.EarningApproved {
+		return errors.New("activity sync requires a signed-in, approved account")
+	}
+	if batch.UserID == "" || batch.UserID != state.UserID {
+		return errors.New("activity belongs to a different account")
+	}
 	return c.post("/api/rewards/activity", batch, nil)
 }
 
@@ -213,6 +269,8 @@ func (c *Client) SaveWaitlistProfile(email, onboardingToken, country string, dev
 }
 
 func (c *Client) SignIn(email, password string) (State, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
 	if err := c.post("/api/auth/login", map[string]string{"email": email, "password": password}, nil); err != nil {
 		return State{}, err
 	}
@@ -223,10 +281,16 @@ func (c *Client) SignIn(email, password string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	return c.GetState()
+	return c.getState()
 }
 
 func (c *Client) GetState() (State, error) {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
+	return c.getState()
+}
+
+func (c *Client) getState() (State, error) {
 	request, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/auth/session", nil)
 	if err != nil {
 		return State{}, err
@@ -239,10 +303,15 @@ func (c *Client) GetState() (State, error) {
 	}
 	defer response.Body.Close()
 	c.captureCookies(response)
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return State{}, fmt.Errorf("verify Earnbear session: status %d", response.StatusCode)
+	}
 
 	var payload struct {
-		Configured bool `json:"configured"`
-		User       *struct {
+		Configured      bool `json:"configured"`
+		EarningApproved bool `json:"earningApproved"`
+		User            *struct {
+			Sub               string `json:"sub"`
 			Email             string `json:"email"`
 			EmailVerified     bool   `json:"emailVerified"`
 			Name              string `json:"name"`
@@ -261,10 +330,12 @@ func (c *Client) GetState() (State, error) {
 		name = payload.User.PreferredUsername
 	}
 	return State{
-		Authenticated: true,
-		Email:         payload.User.Email,
-		EmailVerified: payload.User.EmailVerified,
-		Name:          name,
+		UserID:          payload.User.Sub,
+		Authenticated:   true,
+		EarningApproved: payload.EarningApproved && payload.User.EmailVerified,
+		Email:           payload.User.Email,
+		EmailVerified:   payload.User.EmailVerified,
+		Name:            name,
 	}, nil
 }
 
@@ -277,6 +348,8 @@ func (c *Client) HasSession() bool {
 }
 
 func (c *Client) SignOut() error {
+	c.operationMu.Lock()
+	defer c.operationMu.Unlock()
 	return c.clear()
 }
 
@@ -302,6 +375,7 @@ func (c *Client) post(path string, body any, target any) error {
 	var envelope struct {
 		Success bool   `json:"success"`
 		Message string `json:"message"`
+		Code    string `json:"code"`
 	}
 	content, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
@@ -314,7 +388,7 @@ func (c *Client) post(path string, body any, target any) error {
 		if envelope.Message == "" {
 			envelope.Message = "Earnbear could not complete that request."
 		}
-		return &HTTPError{StatusCode: response.StatusCode, Message: envelope.Message}
+		return &HTTPError{StatusCode: response.StatusCode, Message: envelope.Message, Code: envelope.Code}
 	}
 	if target != nil && len(content) > 0 {
 		if err := json.Unmarshal(content, target); err != nil {

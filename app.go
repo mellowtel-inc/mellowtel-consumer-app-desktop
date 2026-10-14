@@ -3,10 +3,14 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -23,13 +27,15 @@ import (
 
 // App is the Wails-bound application surface exposed to the frontend.
 type App struct {
-	ctx       context.Context
-	cfg       *config.Config
-	manager   *node.Manager
-	autostart autostart.Manager
-	tray      *tray.Tray
-	account   *account.Client
-	activity  *activity.Reporter
+	ctx        context.Context
+	cfg        *config.Config
+	manager    *node.Manager
+	autostart  autostart.Manager
+	tray       *tray.Tray
+	account    *account.Client
+	activity   *activity.Reporter
+	sharingMu  sync.Mutex // serialize session validation, connect and sign-out
+	signingOut atomic.Bool
 
 	configDir string
 	logPath   string
@@ -42,6 +48,20 @@ type App struct {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.activity.Start(ctx)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if a.account.HasSession() || a.manager.IsConnected() {
+					_, _ = a.GetAuthState()
+				}
+			}
+		}
+	}()
 
 	// Push status changes to both the frontend and the tray icon.
 	a.manager.SetOnStatus(func(s node.Status) {
@@ -98,6 +118,32 @@ func (a *App) Connect() error {
 }
 
 func (a *App) connectRegisteredDevice() error {
+	a.sharingMu.Lock()
+	defer a.sharingMu.Unlock()
+	if a.signingOut.Load() {
+		return fmt.Errorf("sign-out is in progress")
+	}
+	state, err := a.account.GetState()
+	if err == nil && a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "auth:update", state)
+	}
+	if err != nil || !state.Authenticated || !state.EarningApproved || state.UserID == "" {
+		reason := "Your account needs approval before sharing can start."
+		if err != nil {
+			reason = "Could not verify account approval. Sharing is paused."
+		} else if !state.Authenticated {
+			reason = "Sign in before starting sharing."
+		}
+		if err != nil {
+			a.stopSharing(reason)
+		} else {
+			a.activity.ClearCredential()
+			a.manager.BlockSharing("not_approved", reason)
+		}
+		return fmt.Errorf("%s", reason)
+	}
+	a.activity.SetAccount(state.UserID)
+	a.activity.ClearCredential()
 	deviceID := a.manager.Status().DeviceID
 	registration, err := a.account.RegisterDevice(account.DeviceRegistration{
 		DeviceID:        deviceID,
@@ -107,20 +153,111 @@ func (a *App) connectRegisteredDevice() error {
 		Integration:     a.cfg.Integration,
 	})
 	if err != nil {
+		a.blockDeviceRegistration(err)
 		return fmt.Errorf("register device: %w", err)
 	}
+	if a.signingOut.Load() {
+		return fmt.Errorf("sign-out is in progress")
+	}
 	a.manager.SetDeviceToken(registration.DeviceToken)
-	a.activity.SetCredential(deviceID, registration.DeviceToken)
 	a.manager.SetOnActivity(func(activity node.AcceptedActivity) {
 		activityID := fmt.Sprintf("%x", sha256.Sum256([]byte(deviceID+"\x00"+activity.RecordID)))
-		if err := a.activity.Enqueue(account.ClientActivity{
+		if err := a.activity.EnqueueForAccount(state.UserID, account.ClientActivity{
 			ActivityID: activityID, BytesUsed: activity.BytesUsed,
 			OccurredAt: activity.OccurredAt.Format(time.RFC3339Nano),
 		}); err != nil {
 			log.Warn().Err(err).Str("activity_id", activityID).Msg("could not persist provisional activity")
 		}
 	})
-	return a.manager.Connect()
+	if err := a.manager.Connect(); err != nil {
+		a.activity.ClearCredential()
+		return err
+	}
+	if a.manager.Status().Approved {
+		a.activity.SetCredential(deviceID, registration.DeviceToken)
+	}
+	return nil
+}
+
+func (a *App) stopSharing(reason string) {
+	a.activity.ClearCredential()
+	a.manager.PauseWithReason(reason)
+}
+
+// A registration conflict is a known device block, not an inconclusive
+// approval check. Keep the original binding intact until it is resolved.
+func (a *App) blockDeviceRegistration(err error) {
+	var response *account.HTTPError
+	if errors.As(err, &response) {
+		log.Warn().Int("http_status", response.StatusCode).Msg("device registration failed")
+		if response.StatusCode == http.StatusConflict {
+			a.activity.ClearCredential()
+			switch response.Code {
+			case "device_changed":
+				a.stopSharing("The device link changed during verification. Check approval again.")
+			case "device_revoked":
+				a.manager.BlockSharing("device_conflict", "This device has been revoked. Contact support to restore sharing.")
+			case "device_linked":
+				a.manager.BlockSharing("device_conflict", "This device is linked to another account. Sign in to its linked account or contact support.")
+			default:
+				a.manager.BlockSharing("device_conflict", "This device is revoked or linked to another account. Sharing is unavailable.")
+			}
+			return
+		}
+		if response.StatusCode == http.StatusForbidden {
+			a.activity.ClearCredential()
+			a.manager.BlockSharing("not_approved", "Your account is not approved to earn. Sharing is unavailable until approval.")
+			return
+		}
+	} else {
+		log.Warn().Msg("device registration could not be completed")
+	}
+	a.stopSharing("Could not register this device. Check your connection and try again.")
+}
+
+// CheckSharingApproval refreshes permission while leaving sharing paused.
+func (a *App) CheckSharingApproval() node.Status {
+	a.sharingMu.Lock()
+	defer a.sharingMu.Unlock()
+	if a.signingOut.Load() {
+		a.manager.BlockSharing("not_approved", "Sign in before checking approval.")
+		return a.manager.Status()
+	}
+	if a.manager.IsConnected() {
+		return a.manager.Status()
+	}
+	state, err := a.account.GetState()
+	if err != nil {
+		a.stopSharing("Could not verify account approval. Sharing is unavailable.")
+		return a.manager.Status()
+	}
+	if a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "auth:update", state)
+	}
+	if !state.Authenticated || !state.EarningApproved || state.UserID == "" {
+		a.activity.ClearCredential()
+		a.manager.BlockSharing("not_approved", "Your account is not approved to earn. Sharing is unavailable until approval.")
+		return a.manager.Status()
+	}
+	a.activity.SetAccount(state.UserID)
+	registration, err := a.account.RegisterDevice(account.DeviceRegistration{
+		DeviceID: a.manager.Status().DeviceID, AppVersion: config.AppVersion,
+		ProtocolVersion: a.cfg.ProtocolVersion, Platform: runtime.GOOS, Integration: a.cfg.Integration,
+	})
+	if err != nil {
+		a.blockDeviceRegistration(err)
+		return a.manager.Status()
+	}
+	if a.signingOut.Load() {
+		return a.manager.Status()
+	}
+	a.manager.SetDeviceToken(registration.DeviceToken)
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_ = a.manager.CheckApproval(ctx)
+	return a.manager.Status()
 }
 
 // Disconnect pauses sharing.
@@ -153,12 +290,47 @@ func (a *App) Toggle() bool {
 
 // GetAuthState restores and validates the user's Earnbear account session.
 func (a *App) GetAuthState() (account.State, error) {
-	return a.account.GetState()
+	a.sharingMu.Lock()
+	defer a.sharingMu.Unlock()
+	state, err := a.account.GetState()
+	if err != nil {
+		a.stopSharing("Could not verify account approval. Sharing is paused.")
+	} else if !state.Authenticated || !state.EarningApproved {
+		a.activity.ClearCredential()
+		a.manager.BlockSharing("not_approved", "Your account is not approved to earn. Sharing is unavailable until approval.")
+	}
+	if err == nil && state.Authenticated {
+		a.activity.SetAccount(state.UserID)
+	}
+	if err == nil && a.ctx != nil {
+		wailsruntime.EventsEmit(a.ctx, "auth:update", state)
+	}
+	return state, err
 }
 
 // SignIn authenticates through Earnbear's server-side Cognito integration.
 func (a *App) SignIn(email, password string) (account.State, error) {
-	return a.account.SignIn(email, password)
+	a.sharingMu.Lock()
+	defer a.sharingMu.Unlock()
+	if a.signingOut.Load() {
+		return account.State{}, fmt.Errorf("sign-out is in progress")
+	}
+	// Drain current work/uploads before replacing the session. The installation
+	// credential survives logout; sharing permission never does.
+	a.manager.Disconnect()
+	a.manager.SetDeviceToken("")
+	a.activity.SetAccount("")
+	a.activity.ClearCredential()
+	a.manager.BlockSharing("unknown", "Checking the signed-in account before sharing…")
+	state, err := a.account.SignIn(email, password)
+	if err != nil {
+		return state, err
+	}
+	a.activity.SetAccount(state.UserID)
+	if !state.EarningApproved {
+		a.manager.BlockSharing("not_approved", "Your account is not approved to earn. Sharing is unavailable until approval.")
+	}
+	return state, nil
 }
 
 // SignUp creates an account and reports whether email confirmation is needed.
@@ -188,7 +360,17 @@ func (a *App) SaveWaitlistProfile(email, onboardingToken, country string, device
 
 // SignOut clears the local session and stops bandwidth sharing immediately.
 func (a *App) SignOut() error {
+	a.signingOut.Store(true)
+	defer a.signingOut.Store(false)
+	// Cancel active work even when session validation is holding the lock.
+	a.manager.DisconnectAsync()
+	a.activity.ClearCredential()
+	a.sharingMu.Lock()
+	defer a.sharingMu.Unlock()
 	a.manager.Disconnect()
+	a.manager.SetDeviceToken("")
+	a.manager.BlockSharing("not_approved", "Sign in before starting sharing.")
+	a.activity.SetAccount("")
 	a.activity.ClearCredential()
 	return a.account.SignOut()
 }

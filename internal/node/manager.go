@@ -5,8 +5,10 @@ package node
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,13 +42,14 @@ const (
 
 // Status is a snapshot of node state for the UI.
 type Status struct {
-	Connection  string `json:"connection"` // disconnected|connecting|connected
-	Detail      string `json:"detail"`     // human-readable status line
-	Paused      bool   `json:"paused"`
-	Approved    bool   `json:"approved"`
-	ChromeFound bool   `json:"chromeFound"`
-	DeviceID    string `json:"deviceId"`
-	Version     string `json:"version"`
+	Connection    string `json:"connection"` // disconnected|connecting|connected
+	Detail        string `json:"detail"`     // human-readable status line
+	Paused        bool   `json:"paused"`
+	Approved      bool   `json:"approved"`
+	SharingAccess string `json:"sharingAccess"` // unknown|checking|approved|not_approved|unavailable
+	ChromeFound   bool   `json:"chromeFound"`
+	DeviceID      string `json:"deviceId"`
+	Version       string `json:"version"`
 
 	// Session counters (reset each run).
 	JobsCompleted  int   `json:"jobsCompleted"`
@@ -138,12 +141,13 @@ func NewManager(log zerolog.Logger, cfg *config.Config, configDir, deviceID stri
 		notifier:    notify.New(nodeLog, cfg.Settings.Notifications),
 	}
 	m.status = Status{
-		Connection:  string(wsclient.StateDisconnected),
-		Detail:      "Paused",
-		Paused:      true,
-		ChromeFound: found,
-		DeviceID:    deviceID,
-		Version:     config.AppVersion,
+		Connection:    string(wsclient.StateDisconnected),
+		Detail:        "Paused",
+		Paused:        true,
+		SharingAccess: "unknown",
+		ChromeFound:   found,
+		DeviceID:      deviceID,
+		Version:       config.AppVersion,
 	}
 	m.applyTotals(&m.status)
 	return m
@@ -236,6 +240,10 @@ func (m *Manager) Connect() error {
 			continue
 		}
 		m.connected = true
+		m.status.Approved = false
+		m.status.SharingAccess = "checking"
+		// Keep cleanup waiting until startup has finished adding goroutines.
+		m.wg.Add(1)
 		ctx, cancel := context.WithCancel(context.Background())
 		m.runCtx = ctx
 		m.runCancel = cancel
@@ -244,6 +252,7 @@ func (m *Manager) Connect() error {
 		m.mu.Unlock()
 		break
 	}
+	defer m.wg.Done()
 	if !announced {
 		m.emit(func(s *Status) {
 			s.Connection = string(wsclient.StateConnecting)
@@ -256,6 +265,31 @@ func (m *Manager) Connect() error {
 	ctx := m.runCtx
 	deviceToken := m.deviceToken
 	m.mu.Unlock()
+
+	checker := approval.New(m.log, m.cfg.Endpoints.ApprovalURL, approval.Params{
+		DeviceID:      m.deviceID,
+		DeviceToken:   deviceToken,
+		Version:       m.cfg.ProtocolVersion,
+		Platform:      m.cfg.PlatformPrefix,
+		SpeedDownload: 500,
+	})
+	// No browser, socket or workers may start before approval succeeds.
+	if strings.TrimSpace(deviceToken) == "" {
+		m.PauseWithReason("Sign in before starting sharing.")
+		return fmt.Errorf("device credential is missing")
+	}
+	approved, err := checker.Check(ctx)
+	if err != nil || !approved {
+		m.onApproval(false, err)
+		if err != nil {
+			return fmt.Errorf("verify device approval: %w", err)
+		}
+		return fmt.Errorf("device is not approved to share")
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	m.emit(func(s *Status) { s.Approved = true; s.SharingAccess = "approved" })
 
 	m.log.Info().Msg("connecting node")
 	// Start the browser engine if Chrome is available. Failure is non-fatal:
@@ -304,18 +338,15 @@ func (m *Manager) Connect() error {
 		ws.Run(ctx)
 	}()
 
-	// Approval polling.
-	checker := approval.New(m.log, m.cfg.Endpoints.ApprovalURL, approval.Params{
-		DeviceID:      m.deviceID,
-		DeviceToken:   deviceToken,
-		Version:       m.cfg.ProtocolVersion,
-		Platform:      m.cfg.PlatformPrefix,
-		SpeedDownload: 500,
-	})
+	// Recheck permission while sharing; failures stop the node.
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
-		checker.Run(ctx, m.onApproval)
+		checker.Run(ctx, func(approved bool, err error) {
+			if ctx.Err() == nil {
+				m.onApproval(approved, err)
+			}
+		})
 	}()
 
 	return nil
@@ -350,7 +381,10 @@ func (m *Manager) beginDisconnect() <-chan struct{} {
 	m.stopDone = make(chan struct{})
 	stopDone := m.stopDone
 	cancel := m.runCancel
-	engine := m.engine
+	if cancel != nil {
+		cancel()
+	}
+	m.status.Approved = false
 	m.mu.Unlock()
 
 	m.emit(func(s *Status) {
@@ -359,18 +393,18 @@ func (m *Manager) beginDisconnect() <-chan struct{} {
 		s.Detail = "Paused — tap to start again."
 	})
 
-	go m.finishDisconnect(cancel, engine, stopDone)
+	go m.finishDisconnect(stopDone)
 	return stopDone
 }
 
-func (m *Manager) finishDisconnect(cancel context.CancelFunc, engine *browser.Engine, stopDone chan struct{}) {
+func (m *Manager) finishDisconnect(stopDone chan struct{}) {
 	m.log.Info().Msg("disconnecting node")
 	// Workers and goroutines exit on context cancellation. The job queue is
 	// intentionally not closed (senders may still race); it is dropped and GC'd.
-	if cancel != nil {
-		cancel()
-	}
 	m.wg.Wait()
+	m.mu.Lock()
+	engine := m.engine
+	m.mu.Unlock()
 	if engine != nil {
 		engine.Stop()
 	}
@@ -398,14 +432,18 @@ func (m *Manager) spawnWorkers(ctx context.Context, count int) {
 		count = 1
 	}
 	m.mu.Lock()
+	if !m.connected || ctx.Err() != nil || m.exec == nil || !m.status.Approved {
+		m.mu.Unlock()
+		return
+	}
 	m.workerGen++
 	gen := m.workerGen
 	exec := m.exec
+	m.wg.Add(count)
 	m.mu.Unlock()
 
 	m.log.Info().Int("workers", count).Msg("sizing worker pool")
 	for i := 0; i < count; i++ {
-		m.wg.Add(1)
 		go m.worker(ctx, exec, gen)
 	}
 }
@@ -420,7 +458,7 @@ func (m *Manager) ApplySettings(s config.Settings) {
 	connected := m.connected
 	ctx := m.runCtx
 	m.mu.Unlock()
-	if connected && ctx != nil {
+	if connected && ctx != nil && ctx.Err() == nil && m.Status().Approved {
 		m.spawnWorkers(ctx, s.SharingIntensity.Workers())
 	}
 }
@@ -473,6 +511,12 @@ func (m *Manager) onMessage(data []byte) {
 
 // shouldSkip enforces the pause schedule and bandwidth cap.
 func (m *Manager) shouldSkip(req *job.Request) bool {
+	m.mu.Lock()
+	allowed := m.connected && m.status.Approved
+	m.mu.Unlock()
+	if !allowed {
+		return true
+	}
 	if withinPauseWindow(time.Now(), m.cfg.Settings.PauseScheduleFrom, m.cfg.Settings.PauseScheduleTo) {
 		m.log.Info().Str("recordID", req.RecordID).Msg("skipping job: within pause schedule")
 		m.emit(func(s *Status) { s.Detail = "Paused (schedule)" })
@@ -514,6 +558,9 @@ func (m *Manager) worker(ctx context.Context, exec *executor.Executor, gen int) 
 }
 
 func (m *Manager) runJob(ctx context.Context, exec *executor.Executor, req *job.Request) {
+	if ctx.Err() != nil || m.shouldSkip(req) {
+		return
+	}
 	jobCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
@@ -546,6 +593,10 @@ func (m *Manager) runJob(ctx context.Context, exec *executor.Executor, req *job.
 		return
 	}
 
+	// Revocation or sign-out can arrive while a request is in flight.
+	if ctx.Err() != nil || !m.Status().Approved {
+		return
+	}
 	m.stats.RecordSuccess(outcome.BytesUsed)
 	m.log.Debug().
 		Str("recordID", req.RecordID).
@@ -584,6 +635,9 @@ func encouragement(sessionJobs int) string {
 
 func (m *Manager) onWSState(state wsclient.State) {
 	m.emit(func(s *Status) {
+		if !m.connected {
+			return
+		}
 		s.Connection = string(state)
 		switch state {
 		case wsclient.StateConnected:
@@ -598,15 +652,63 @@ func (m *Manager) onWSState(state wsclient.State) {
 	})
 }
 
+// PauseWithReason cancels work immediately and retains an actionable status.
+func (m *Manager) PauseWithReason(reason string) {
+	m.BlockSharing("unavailable", reason)
+}
+
+func (m *Manager) BlockSharing(access, reason string) {
+	m.DisconnectAsync()
+	m.emit(func(s *Status) {
+		s.Approved = false
+		s.SharingAccess = access
+		s.Connection = string(wsclient.StateDisconnected)
+		s.Paused = true
+		s.Detail = reason
+	})
+}
+
 func (m *Manager) onApproval(approved bool, err error) {
-	m.emit(func(s *Status) { s.Approved = approved })
 	if err != nil {
-		// Network hiccups shouldn't pause the node; only an explicit denial does.
+		m.log.Warn().Err(err).Msg("approval unavailable; pausing")
+		m.PauseWithReason("Could not verify device approval. Sharing is paused.")
 		return
 	}
 	if !approved {
-		m.log.Warn().Msg("node not approved; disconnecting")
-		m.emit(func(s *Status) { s.Detail = "Approval failed" })
-		go m.Disconnect()
+		m.log.Warn().Msg("node not approved; pausing")
+		m.BlockSharing("not_approved", "This device is not approved to share.")
+		return
 	}
+	m.emit(func(s *Status) {
+		s.Approved = true
+		s.SharingAccess = "approved"
+		if s.Paused {
+			s.Detail = "Paused — tap to start again."
+		}
+	})
+}
+
+// CheckApproval verifies permission without starting a socket, browser or jobs.
+func (m *Manager) CheckApproval(ctx context.Context) error {
+	m.mu.Lock()
+	token := m.deviceToken
+	m.mu.Unlock()
+	m.emit(func(s *Status) { s.SharingAccess = "checking"; s.Detail = "Checking approval…" })
+	if strings.TrimSpace(token) == "" {
+		m.BlockSharing("not_approved", "Sign in before starting sharing.")
+		return fmt.Errorf("device credential is missing")
+	}
+	checker := approval.New(m.log, m.cfg.Endpoints.ApprovalURL, approval.Params{
+		DeviceID: m.deviceID, DeviceToken: token, Version: m.cfg.ProtocolVersion,
+		Platform: m.cfg.PlatformPrefix, SpeedDownload: 500,
+	})
+	approved, err := checker.Check(ctx)
+	m.onApproval(approved, err)
+	if err != nil {
+		return err
+	}
+	if !approved {
+		return fmt.Errorf("device is not approved to share")
+	}
+	return nil
 }

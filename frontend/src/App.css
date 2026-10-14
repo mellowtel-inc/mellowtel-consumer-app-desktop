@@ -763,15 +763,15 @@
   height: 250px;
   flex: 0 0 250px;
   display: grid;
+  grid-template-rows: 172px 78px;
   place-items: center;
-  isolation: isolate;
 }
 .sharing-stage::before {
   content: '';
   position: absolute;
   z-index: 0;
   left: 50%;
-  bottom: 19px;
+  bottom: 76px;
   width: 218px;
   height: 174px;
   border-radius: 50%;
@@ -779,53 +779,19 @@
   transform: translateX(-50%);
 }
 .dashboard-mascot {
-  position: absolute;
+  position: relative;
   z-index: 2;
-  left: 50%;
-  bottom: 0;
   width: 188px;
-  height: 248px;
-  display: block;
-  filter: drop-shadow(0 20px 22px rgba(24, 33, 42, .13));
-  transform: translateX(-50%);
-  transition: opacity .24s ease;
-}
-.dashboard-mascot-image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  height: 172px;
   display: block;
   object-fit: contain;
-  opacity: 0;
-  transition: opacity .24s ease;
 }
-.sharing-stage.active .dashboard-mascot {
-  opacity: 1;
-  filter: saturate(1.32) contrast(1.04) brightness(1.03) drop-shadow(0 22px 25px rgba(49, 94, 251, .2));
-  animation: mascot-breathe 3.4s ease-in-out infinite;
-}
-.sharing-stage.active .mascot-active { opacity: 1; }
-.sharing-stage.active .mascot-paused { opacity: 0; }
-.sharing-stage.paused .dashboard-mascot {
-  opacity: .78;
-  filter: grayscale(.92) saturate(.28) contrast(.92) drop-shadow(0 16px 18px rgba(24, 33, 42, .1));
-}
-.sharing-stage.paused .mascot-active { opacity: 0; }
-.sharing-stage.paused .mascot-paused { opacity: 1; }
 .sharing-stage.paused::before {
   background: radial-gradient(circle, rgba(132, 145, 160, .14), rgba(132, 145, 160, .04) 56%, transparent 72%);
 }
-.sharing-stage.starting .dashboard-mascot {
-  opacity: .88;
-  filter: saturate(.68) drop-shadow(0 19px 21px rgba(49, 94, 251, .14));
-  animation: mascot-breathe 2.1s ease-in-out infinite;
-}
 .sharing-stage .power {
-  position: absolute;
+  position: relative;
   z-index: 4;
-  right: calc(50% - 106px);
-  bottom: 20px;
   width: 78px;
   height: 78px;
   margin: 0;
@@ -836,6 +802,9 @@
 .sharing-stage .power::after { display: none; }
 .sharing-stage .power-icon { width: 27px; height: 27px; }
 .sharing-stage .power-label { font-size: 9px; letter-spacing: .01em; }
+.sharing-stage .power:disabled { cursor: not-allowed; box-shadow: none; }
+.approval-check { padding: 7px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent-dim); background: var(--card); font-size: 11px; font-weight: 700; }
+.approval-check:disabled { cursor: wait; }
 
 .coin-stream {
   position: absolute;
@@ -958,11 +927,9 @@
   max-height: 255px;
   object-fit: contain;
   filter: drop-shadow(0 15px 18px rgba(24, 33, 42, .12));
-  animation: onboarding-art-in .55s cubic-bezier(.2, .8, .2, 1) both;
-}
-@keyframes onboarding-art-in {
-  from { opacity: 0; transform: translateY(13px) scale(.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  /* Keep art visible while WebKit decodes it. An opacity animation with
+     fill-mode: both can leave newly loaded images on an invisible layer. */
+  opacity: 1;
 }
 .onboarding-copy { align-self: center; text-align: center; }
 .onboarding-copy > span {
@@ -1023,9 +990,9 @@
   .main { gap: 11px; padding-bottom: 18px; }
   .earnings { margin-top: 5px; }
   .earnings-value { font-size: 40px; }
-  .sharing-stage { height: 213px; flex-basis: 213px; }
-  .dashboard-mascot { width: 164px; height: 211px; }
-  .sharing-stage .power { right: calc(50% - 92px); bottom: 13px; width: 68px; height: 68px; }
+  .sharing-stage { height: 213px; flex-basis: 213px; grid-template-rows: 145px 68px; }
+  .dashboard-mascot { width: 164px; height: 145px; }
+  .sharing-stage .power { width: 68px; height: 68px; }
   .sharing-stage .power::before { inset: -6px; }
   .sharing-stage .power-icon { width: 23px; height: 23px; }
   .stats .stat { padding-block: 10px; }

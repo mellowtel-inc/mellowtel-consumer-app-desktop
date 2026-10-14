@@ -13,7 +13,9 @@ export namespace account {
 	    }
 	}
 	export class State {
+	    userId: string;
 	    authenticated: boolean;
+	    earningApproved: boolean;
 	    email: string;
 	    emailVerified: boolean;
 	    name: string;
@@ -24,7 +26,9 @@ export namespace account {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userId = source["userId"];
 	        this.authenticated = source["authenticated"];
+	        this.earningApproved = source["earningApproved"];
 	        this.email = source["email"];
 	        this.emailVerified = source["emailVerified"];
 	        this.name = source["name"];
@@ -179,6 +183,7 @@ export namespace node {
 	    detail: string;
 	    paused: boolean;
 	    approved: boolean;
+	    sharingAccess: string;
 	    chromeFound: boolean;
 	    deviceId: string;
 	    version: string;
@@ -202,6 +207,7 @@ export namespace node {
 	        this.detail = source["detail"];
 	        this.paused = source["paused"];
 	        this.approved = source["approved"];
+	        this.sharingAccess = source["sharingAccess"];
 	        this.chromeFound = source["chromeFound"];
 	        this.deviceId = source["deviceId"];
 	        this.version = source["version"];

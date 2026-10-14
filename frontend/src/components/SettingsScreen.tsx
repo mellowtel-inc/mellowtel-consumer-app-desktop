@@ -6,6 +6,7 @@ interface Props {
   email: string;
   onSignOut: () => void;
   onBack: () => void;
+  onViewIntroduction: () => void;
 }
 
 const DEFAULTS: Settings = {
@@ -25,7 +26,7 @@ const INTENSITY_COPY: Record<SharingIntensity, string> = {
   max: 'Maximum — earn the most, best when you’re away.',
 };
 
-export default function SettingsScreen({ deviceId, email, onSignOut, onBack }: Props) {
+export default function SettingsScreen({ deviceId, email, onSignOut, onBack, onViewIntroduction }: Props) {
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -127,6 +128,10 @@ export default function SettingsScreen({ deviceId, email, onSignOut, onBack }: P
             </div>
 
             <SectionLabel>Application</SectionLabel>
+            <button className="card quit-card" onClick={onViewIntroduction}>
+              <span><b>View introduction</b><small>See how Earnbear works</small></span>
+              <strong>View</strong>
+            </button>
             <button className="card quit-card" onClick={() => API.quit()}>
               <span>
                 <b>Quit Earnbear</b>

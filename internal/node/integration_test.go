@@ -131,6 +131,7 @@ func TestEndToEndScrape(t *testing.T) {
 		t.Skip("chrome not installed")
 	}
 	t0 := time.Now()
+	mgr.SetDeviceToken("test-device-proof")
 	if err := mgr.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
 	}

@@ -18,6 +18,66 @@ type fakeSender struct {
 	sent    chan account.ClientActivityBatch
 }
 
+func TestAccountSwitchPreservesAndIsolatesOutbox(t *testing.T) {
+	dir := t.TempDir()
+	sender := &fakeSender{}
+	r, err := New(dir, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.SetAccount("account-a")
+	r.SetCredential("mllwtl_consumer_test", "proof-a")
+	if err := r.Enqueue(account.ClientActivity{ActivityID: "activity-a", BytesUsed: 10}); err != nil {
+		t.Fatal(err)
+	}
+	r.SetAccount("account-b")
+	if err := r.EnqueueForAccount("account-a", account.ClientActivity{ActivityID: "late-a", BytesUsed: 10}); err == nil {
+		t.Fatal("late completion was attributed to account B")
+	}
+	r.SetCredential("mllwtl_consumer_test", "proof-b")
+	if err := r.Enqueue(account.ClientActivity{ActivityID: "activity-b", BytesUsed: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.flushOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.batches) != 1 || sender.batches[0].UserID != "account-b" || sender.batches[0].ActivityCount != 1 || sender.batches[0].ActivityBytes != 20 {
+		t.Fatalf("mixed-account batch: %+v", sender.batches)
+	}
+	restored, err := New(dir, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.pending) != 1 || restored.pending[0].AccountID != "account-a" {
+		t.Fatal("previous account's pending activity was lost")
+	}
+	restored.SetAccount("account-a")
+	restored.SetCredential("mllwtl_consumer_test", "new-proof-a")
+	if err := restored.flushOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.batches) != 2 || sender.batches[1].UserID != "account-a" || sender.batches[1].ActivityBytes != 10 {
+		t.Fatalf("previous account activity not restored: %+v", sender.batches)
+	}
+}
+
+func TestUnownedLegacyActivityIsNotAssignedToNewLogin(t *testing.T) {
+	dir := t.TempDir()
+	sender := &fakeSender{}
+	r, _ := New(dir, sender)
+	if err := r.Enqueue(account.ClientActivity{ActivityID: "legacy", BytesUsed: 10}); err != nil {
+		t.Fatal(err)
+	}
+	r.SetAccount("account-b")
+	r.SetCredential("mllwtl_consumer_test", "proof-b")
+	if err := r.flushOnce(); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.batches) != 0 || len(r.pending) != 1 {
+		t.Fatal("unowned historical activity was transferred or discarded")
+	}
+}
+
 func (f *fakeSender) RecordClientActivityBatch(batch account.ClientActivityBatch) error {
 	f.batches = append(f.batches, batch)
 	if f.sent != nil {

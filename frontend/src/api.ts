@@ -7,6 +7,7 @@ export interface Status {
   detail: string;
   paused: boolean;
   approved: boolean;
+  sharingAccess: 'unknown' | 'checking' | 'approved' | 'not_approved' | 'unavailable' | 'device_conflict';
   chromeFound: boolean;
   deviceId: string;
   version: string;
@@ -28,7 +29,9 @@ export interface Status {
 }
 
 export interface AuthState {
+	userId: string;
   authenticated: boolean;
+  earningApproved: boolean;
   email: string;
   emailVerified: boolean;
   name: string;
@@ -97,6 +100,7 @@ type AppBridge = {
   ShowWindow(): Promise<void>;
   Quit(): Promise<void>;
   GetAuthState(): Promise<AuthState>;
+  CheckSharingApproval(): Promise<Status>;
   SignIn(email: string, password: string): Promise<AuthState>;
   SignUp(email: string, password: string, affiliateCode: string): Promise<SignUpResult>;
   ConfirmSignUp(email: string, code: string): Promise<void>;
@@ -138,6 +142,7 @@ export const API = {
   openURL: (url: string) => app().OpenURL(url),
   quit: () => app().Quit(),
   getAuthState: () => app().GetAuthState(),
+  checkSharingApproval: () => app().CheckSharingApproval(),
   signIn: (email: string, password: string) => app().SignIn(email, password),
   signUp: (email: string, password: string, affiliateCode = '') => app().SignUp(email, password, affiliateCode),
   confirmSignUp: (email: string, code: string) => app().ConfirmSignUp(email, code),
@@ -176,6 +181,10 @@ function subscribe(event: string, cb: (...data: any[]) => void): () => void {
 // onStatus subscribes to backend status pushes. Returns an unsubscribe fn.
 export function onStatus(cb: (s: Status) => void): () => void {
   return subscribe('status:update', (s: Status) => cb(s));
+}
+
+export function onAuthState(cb: (s: AuthState) => void): () => void {
+  return subscribe('auth:update', (s: AuthState) => cb(s));
 }
 
 export function onChromeMissing(cb: (url: string) => void): () => void {

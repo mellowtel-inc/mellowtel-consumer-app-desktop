@@ -25,7 +25,7 @@ func TestSignInPersistsAndRestoresSession(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"configured": true,
-				"user":       map[string]any{"email": "bear@example.com", "emailVerified": true},
+				"user":       map[string]any{"sub": "user-bear", "email": "bear@example.com", "emailVerified": true},
 			})
 		default:
 			http.NotFound(w, r)
@@ -158,6 +158,7 @@ func TestWaitlistOnboarding(t *testing.T) {
 }
 
 func TestRegisterDeviceUsesAuthenticatedSession(t *testing.T) {
+	registrations := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/devices/register" {
 			http.NotFound(w, r)
@@ -174,8 +175,12 @@ func TestRegisterDeviceUsesAuthenticatedSession(t *testing.T) {
 		if payload.DeviceID != "mllwtl_consumer_abc123" || payload.Platform != "darwin" {
 			t.Fatalf("unexpected registration: %+v", payload)
 		}
+		if registrations > 0 && payload.InstallationToken != "install-proof" {
+			t.Fatal("installation proof did not survive logout/restart")
+		}
+		registrations++
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": true, "deviceToken": "device-proof", "linkedAt": "2026-08-11T10:00:00Z",
+			"success": true, "deviceToken": "device-proof", "installationToken": "install-proof", "userId": "user-bear", "linkedAt": "2026-08-11T10:00:00Z",
 		})
 	}))
 	defer server.Close()
@@ -193,10 +198,49 @@ func TestRegisterDeviceUsesAuthenticatedSession(t *testing.T) {
 	if result.DeviceToken != "device-proof" {
 		t.Fatalf("device token = %q", result.DeviceToken)
 	}
+	if err := client.SignOut(); err != nil {
+		t.Fatal(err)
+	}
+	// A fresh process must still prove this installation after logout.
+	restored := NewWithBaseURL(dir, server.URL)
+	restored.session.Cookies["earnbear_access"] = "access-token"
+	if _, err := restored.RegisterDevice(DeviceRegistration{DeviceID: "mllwtl_consumer_abc123", Platform: "darwin"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, "installation-credential.json"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("installation credential permissions: %v %v", info, err)
+	}
+}
+
+func TestActivityFromPreviousAccountCannotUpload(t *testing.T) {
+	var uploaded bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/session" {
+			_, _ = w.Write([]byte(`{"user":{"sub":"account-b","emailVerified":true},"earningApproved":true}`))
+		} else {
+			uploaded = true
+			_, _ = w.Write([]byte(`{"success":true}`))
+		}
+	}))
+	defer server.Close()
+	client := NewWithBaseURL(t.TempDir(), server.URL)
+	for _, owner := range []string{"account-a", ""} {
+		if err := client.RecordClientActivityBatch(ClientActivityBatch{UserID: owner}); err == nil {
+			t.Fatal("old/unowned activity accepted")
+		}
+	}
+	if uploaded {
+		t.Fatal("activity crossed account boundary")
+	}
 }
 
 func TestRecordClientActivityBatchUsesSessionAndDeviceProof(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/session" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"earningApproved": true, "user": map[string]any{"sub": "user-bear", "email": "bear@example.com", "emailVerified": true}})
+			return
+		}
 		if r.URL.Path != "/api/rewards/activity" {
 			http.NotFound(w, r)
 			return
@@ -219,11 +263,56 @@ func TestRecordClientActivityBatchUsesSessionAndDeviceProof(t *testing.T) {
 	client := NewWithBaseURL(t.TempDir(), server.URL)
 	client.session.Cookies["earnbear_access"] = "access-token"
 	err := client.RecordClientActivityBatch(ClientActivityBatch{
-		DeviceID: "mllwtl_consumer_abc123", DeviceToken: "device-proof", BatchID: "batch-hash",
+		UserID: "user-bear", DeviceID: "mllwtl_consumer_abc123", DeviceToken: "device-proof", BatchID: "batch-hash",
 		ActivityCount: 1, ActivityBytes: 2048, FirstOccurred: "2026-08-12T00:00:00Z",
 		LastOccurred: "2026-08-12T00:00:00Z", ActivityDigest: "digest",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApprovalStateAndActivityFailClosed(t *testing.T) {
+	for _, approval := range []string{"true", "false", "missing", "unverified", "offline", "signed out"} {
+		t.Run(approval, func(t *testing.T) {
+			var uploaded bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/rewards/activity" {
+					uploaded = true
+					_, _ = w.Write([]byte(`{"success":true}`))
+					return
+				}
+				if approval == "offline" {
+					http.Error(w, "unavailable", 503)
+					return
+				}
+				payload := map[string]any{"user": map[string]any{"sub": "user-bear", "email": "bear@example.com", "emailVerified": approval != "unverified"}}
+				if approval != "missing" {
+					payload["earningApproved"] = approval == "true" || approval == "unverified"
+				}
+				if approval == "signed out" {
+					payload["user"] = nil
+				}
+				_ = json.NewEncoder(w).Encode(payload)
+			}))
+			defer server.Close()
+			client := NewWithBaseURL(t.TempDir(), server.URL)
+			state, err := client.GetState()
+			if approval == "true" {
+				if err != nil || !state.Authenticated || !state.EarningApproved {
+					t.Fatalf("approved state: %+v %v", state, err)
+				}
+			} else if state.EarningApproved {
+				t.Fatal("missing or invalid approval granted access")
+			}
+			err = client.RecordClientActivityBatch(ClientActivityBatch{UserID: "user-bear"})
+			if approval == "true" {
+				if err != nil || !uploaded {
+					t.Fatalf("approved upload failed: %v", err)
+				}
+			} else if err == nil || uploaded {
+				t.Fatal("unapproved activity was uploaded")
+			}
+		})
 	}
 }

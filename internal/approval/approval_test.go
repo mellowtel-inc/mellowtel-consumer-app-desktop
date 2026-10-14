@@ -35,3 +35,16 @@ func TestCheckSendsDeviceProof(t *testing.T) {
 		t.Fatal("expected device to be approved")
 	}
 }
+
+func TestExplicitPermissionDenialIsNotAnAvailabilityError(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "denied", status) }))
+			defer server.Close()
+			approved, err := New(zerolog.Nop(), server.URL, Params{}).Check(context.Background())
+			if approved || err != nil {
+				t.Fatalf("denial returned approved=%v err=%v", approved, err)
+			}
+		})
+	}
+}

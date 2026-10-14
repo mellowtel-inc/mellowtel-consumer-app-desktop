@@ -3,6 +3,7 @@ import './App.css';
 import {
   API,
   onStatus,
+  onAuthState,
   onChromeMissing,
   formatCount,
   Status,
@@ -12,6 +13,7 @@ import SettingsScreen from './components/SettingsScreen';
 import ChromeModal from './components/ChromeModal';
 import OnboardingFlow from './components/OnboardingFlow';
 import AuthScreen from './components/AuthScreen';
+import { sharingView } from './sharing-state';
 import earnbearMark from './assets/brand/earnbear-mark.png';
 import earnbearCoinPresenter from './assets/mascot/earnbear-coin-presenter.png';
 import earnbearPausedSad from './assets/mascot/earnbear-paused-sad.png';
@@ -22,6 +24,7 @@ const EMPTY_STATUS: Status = {
   detail: 'Paused',
   paused: true,
   approved: false,
+  sharingAccess: 'unknown',
   chromeFound: true,
   deviceId: '',
   version: '',
@@ -50,10 +53,11 @@ export default function App() {
   useEffect(() => {
     API.getAuthState()
       .then(setAuthState)
-      .catch(() => setAuthState({ authenticated: false, email: '', emailVerified: false, name: '' }))
+      .catch(() => setAuthState({ userId: '', authenticated: false, earningApproved: false, email: '', emailVerified: false, name: '' }))
       .finally(() => setAuthLoading(false));
     API.getStatus().then(setStatus).catch(() => {});
     const off = onStatus(setStatus);
+    const offAuth = onAuthState(setAuthState);
     const offChrome = onChromeMissing(() => setChromeMissing(true));
 
     // Backstop: keep the UI honest even if an event is missed.
@@ -63,30 +67,43 @@ export default function App() {
 
     return () => {
       off();
+      offAuth();
       offChrome();
       clearInterval(poll);
     };
   }, []);
 
-  // Treat sharing as active as soon as the user taps connect. The native
-  // connection can continue in the background without making the button
-  // visibly step through a second, laggy-looking state.
-  const active = !status.paused;
+  const view = sharingView(authState, status);
+  const active = view.active;
+
+  useEffect(() => {
+    if (!authState?.authenticated || !authState.earningApproved) return;
+    let cancelled = false;
+    API.checkSharingApproval().then((next) => { if (!cancelled) setStatus(next); }).catch(() => {
+      if (cancelled) return;
+      setStatus((current) => ({ ...current, paused: true, sharingAccess: 'unavailable', detail: 'Could not verify approval. Sharing is unavailable.' }));
+    });
+    return () => { cancelled = true; };
+  }, [authState?.userId, authState?.authenticated, authState?.earningApproved]);
+
+  const checkApproval = async () => {
+    setBusy(true);
+    try { setStatus(await API.checkSharingApproval()); }
+    catch { setStatus((current) => ({ ...current, paused: true, sharingAccess: 'unavailable', detail: 'Could not verify approval. Sharing is unavailable.' })); }
+    finally { setBusy(false); }
+  };
 
   const toggle = useCallback(async () => {
+    if (!view.active && !view.canStart) return;
     setBusy(true);
-    setStatus((current) => active
-      ? { ...current, connection: 'disconnected', paused: true, detail: 'Paused — tap to start again.' }
-      : { ...current, connection: 'connecting', paused: false, detail: 'Earnbear is active.' }
-    );
     try {
-      await API.toggle();
-    } catch {
-      /* bridge not ready */
-    } finally {
-      setBusy(false);
-    }
-  }, [active]);
+      if (view.active) await API.disconnect();
+      else await API.connect();
+      setStatus(await API.getStatus());
+    } catch (error) {
+      setStatus(await API.getStatus().catch(() => ({ ...status, paused: true, sharingAccess: 'unavailable' as const, detail: String(error) })));
+    } finally { setBusy(false); }
+  }, [view.active, view.canStart, status]);
 
   const finishOnboarding = () => {
     window.localStorage.setItem('earnbear-onboarding-complete', 'true');
@@ -99,7 +116,7 @@ export default function App() {
     } finally {
       setStatus(EMPTY_STATUS);
       setShowSettings(false);
-      setAuthState({ authenticated: false, email: '', emailVerified: false, name: '' });
+      setAuthState({ userId: '', authenticated: false, earningApproved: false, email: '', emailVerified: false, name: '' });
     }
   };
 
@@ -113,14 +130,10 @@ export default function App() {
 
   if (showSettings) {
     return (
-      <SettingsScreen deviceId={status.deviceId} email={authState.email} onSignOut={signOut} onBack={() => setShowSettings(false)} />
+      <SettingsScreen deviceId={status.deviceId} email={authState.email} onSignOut={signOut} onBack={() => setShowSettings(false)} onViewIntroduction={() => { setShowSettings(false); setShowOnboarding(true); }} />
     );
   }
 
-  const buttonLabel = active ? 'Connected' : 'Paused';
-  const statusDetail = active
-    ? (status.connection === 'connected' ? status.detail : 'Earnbear is active.')
-    : 'Paused — tap to start again.';
   const successLabel =
     status.totalJobsCompleted + status.totalJobsFailed > 0
       ? `${status.successRate.toFixed(1)}%`
@@ -160,29 +173,28 @@ export default function App() {
               />
             ))}
           </div>
-          <div
+          <img
             className="dashboard-mascot"
-            role="img"
-            aria-label={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
-          >
-            <img className="dashboard-mascot-image mascot-active" src={earnbearCoinPresenter} alt="" aria-hidden="true" />
-            <img className="dashboard-mascot-image mascot-paused" src={earnbearPausedSad} alt="" aria-hidden="true" />
-          </div>
+            src={active ? earnbearCoinPresenter : earnbearPausedSad}
+            alt={active ? 'Earnbear presenting a reward coin' : 'Earnbear looking sad while sharing is paused'}
+          />
           <button
             className={`power ${active ? 'on' : 'off'}`}
             onClick={toggle}
-            disabled={busy}
-            aria-label={active ? 'Pause sharing' : 'Start sharing'}
+            disabled={busy || (!view.active && !view.canStart)}
+            aria-label={!view.canStart && !view.active ? view.buttonLabel : active ? 'Pause sharing' : 'Start sharing'}
           >
             <PowerIcon />
-            <span className="power-label">{buttonLabel}</span>
+            <span className="power-label">{view.buttonLabel}</span>
           </button>
         </div>
 
-        <div className="status-line">
+        <div className="status-line" role="status" aria-live="polite">
           <span className={`status-dot ${status.connection}`} />
-          <span>{statusDetail}</span>
+          <span>{view.statusText}</span>
         </div>
+
+        {view.allowRetry && <button className="approval-check" disabled={busy} onClick={checkApproval}>{busy ? 'Checking approval…' : 'Check approval'}</button>}
 
         {!status.chromeFound && (
           <button className="warn-pill" onClick={() => setChromeMissing(true)}>
@@ -214,7 +226,7 @@ export default function App() {
       </main>
 
       {chromeMissing && <ChromeModal onClose={() => setChromeMissing(false)} />}
-      {showOnboarding && <OnboardingFlow onComplete={finishOnboarding} />}
+      {showOnboarding && view.canStart && <OnboardingFlow onComplete={finishOnboarding} />}
     </div>
   );
 }

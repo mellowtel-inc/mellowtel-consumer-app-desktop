@@ -34,29 +34,47 @@ type batchSender interface {
 }
 
 type queuedActivity struct {
-	BatchID  string
-	Activity account.ClientActivity
+	BatchID   string
+	AccountID string
+	Activity  account.ClientActivity
 }
 
 type outboxRecord struct {
-	Type     string                  `json:"type"`
-	BatchID  string                  `json:"batchId"`
-	Activity *account.ClientActivity `json:"activity,omitempty"`
+	Type      string                  `json:"type"`
+	BatchID   string                  `json:"batchId"`
+	AccountID string                  `json:"accountId,omitempty"`
+	Activity  *account.ClientActivity `json:"activity,omitempty"`
 }
 
 // Reporter keeps accepted activities on disk until AWS acknowledges their
 // batch. Device credentials remain memory-only and are never written to the
 // outbox.
 type Reporter struct {
-	mu       sync.Mutex
-	path     string
-	sender   batchSender
-	pending  []queuedActivity
-	openID   string
-	openSize int
-	deviceID string
-	token    string
-	wake     chan struct{}
+	mu        sync.Mutex
+	uploadMu  sync.Mutex // finish an existing upload before switching sessions
+	path      string
+	sender    batchSender
+	pending   []queuedActivity
+	openID    string
+	openSize  int
+	deviceID  string
+	token     string
+	accountID string
+	wake      chan struct{}
+}
+
+// SetAccount keeps queued work attached to its original account. Legacy
+// records without an owner stay on disk and are not credited to a new login.
+func (r *Reporter) SetAccount(accountID string) {
+	r.uploadMu.Lock()
+	defer r.uploadMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.accountID != accountID {
+		r.accountID = accountID
+		r.deviceID, r.token = "", ""
+		r.openID, r.openSize = "", 0
+	}
 }
 
 func New(configDir string, sender batchSender) (*Reporter, error) {
@@ -102,6 +120,13 @@ func (r *Reporter) Flush() {
 
 // Enqueue appends one activity to the local write-ahead log before returning.
 func (r *Reporter) Enqueue(item account.ClientActivity) error {
+	r.mu.Lock()
+	accountID := r.accountID
+	r.mu.Unlock()
+	return r.EnqueueForAccount(accountID, item)
+}
+
+func (r *Reporter) EnqueueForAccount(accountID string, item account.ClientActivity) error {
 	if strings.TrimSpace(item.ActivityID) == "" || item.BytesUsed < 0 {
 		return errors.New("invalid provisional activity")
 	}
@@ -110,6 +135,9 @@ func (r *Reporter) Enqueue(item account.ClientActivity) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if accountID != r.accountID {
+		return errors.New("activity account changed before enqueue")
+	}
 	if len(r.pending) >= maxOutboxSize {
 		return errors.New("provisional activity outbox is full")
 	}
@@ -121,11 +149,11 @@ func (r *Reporter) Enqueue(item account.ClientActivity) error {
 		r.openID = batchID
 		r.openSize = 0
 	}
-	record := outboxRecord{Type: "activity", BatchID: r.openID, Activity: &item}
+	record := outboxRecord{Type: "activity", BatchID: r.openID, AccountID: accountID, Activity: &item}
 	if err := r.appendLocked(record); err != nil {
 		return err
 	}
-	r.pending = append(r.pending, queuedActivity{BatchID: r.openID, Activity: item})
+	r.pending = append(r.pending, queuedActivity{BatchID: r.openID, AccountID: accountID, Activity: item})
 	r.openSize++
 	if r.openSize == maxBatchSize {
 		if err := r.sealOpenLocked(); err != nil {
@@ -175,33 +203,51 @@ func (r *Reporter) run(ctx context.Context) {
 func (r *Reporter) hasSealedBatch() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.pending) > 0 && r.pending[0].BatchID != r.openID
+	for _, item := range r.pending {
+		if item.AccountID == r.accountID && item.BatchID != r.openID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reporter) flushOnce() error {
+	r.uploadMu.Lock()
+	defer r.uploadMu.Unlock()
 	r.mu.Lock()
 	if len(r.pending) == 0 || r.deviceID == "" || r.token == "" {
 		r.mu.Unlock()
 		return nil
 	}
-	batchID := r.pending[0].BatchID
+	batchID := ""
+	for _, item := range r.pending {
+		if item.AccountID == r.accountID {
+			batchID = item.BatchID
+			break
+		}
+	}
+	if batchID == "" {
+		r.mu.Unlock()
+		return nil
+	}
 	if batchID == r.openID {
 		if err := r.sealOpenLocked(); err != nil {
 			r.mu.Unlock()
 			return err
 		}
 	}
-	count := 0
 	items := make([]account.ClientActivity, 0, maxBatchSize)
-	for count < len(r.pending) && count < maxBatchSize && r.pending[count].BatchID == batchID {
-		items = append(items, r.pending[count].Activity)
-		count++
+	for _, item := range r.pending {
+		if item.AccountID == r.accountID && item.BatchID == batchID && len(items) < maxBatchSize {
+			items = append(items, item.Activity)
+		}
 	}
-	deviceID, token := r.deviceID, r.token
+	deviceID, token, accountID := r.deviceID, r.token, r.accountID
 	r.mu.Unlock()
 
 	summary := summarize(items)
 	if err := r.sender.RecordClientActivityBatch(account.ClientActivityBatch{
+		UserID:   accountID,
 		DeviceID: deviceID, DeviceToken: token, BatchID: batchID,
 		ActivityCount: len(items), ActivityBytes: summary.bytes,
 		FirstOccurred: summary.firstOccurred, LastOccurred: summary.lastOccurred,
@@ -212,16 +258,17 @@ func (r *Reporter) flushOnce() error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.pending) < count {
-		return errors.New("provisional activity outbox changed during upload")
+	original := r.pending
+	acknowledged := make(map[string]bool, len(items))
+	for _, item := range items {
+		acknowledged[item.ActivityID] = true
 	}
-	for index := range items {
-		if r.pending[index].BatchID != batchID || r.pending[index].Activity.ActivityID != items[index].ActivityID {
-			return errors.New("provisional activity outbox changed during upload")
+	r.pending = make([]queuedActivity, 0, len(original)-len(items))
+	for _, item := range original {
+		if item.AccountID != accountID || item.BatchID != batchID || !acknowledged[item.Activity.ActivityID] {
+			r.pending = append(r.pending, item)
 		}
 	}
-	original := r.pending
-	r.pending = r.pending[count:]
 	if err := r.rewriteLocked(); err != nil {
 		r.pending = original
 		return err
@@ -283,7 +330,7 @@ func (r *Reporter) load() error {
 			continue
 		}
 		if record.Type == "activity" && record.Activity != nil && record.Activity.ActivityID != "" && record.Activity.BytesUsed >= 0 {
-			r.pending = append(r.pending, queuedActivity{BatchID: record.BatchID, Activity: *record.Activity})
+			r.pending = append(r.pending, queuedActivity{BatchID: record.BatchID, AccountID: record.AccountID, Activity: *record.Activity})
 			counts[record.BatchID]++
 			lastBatchID = record.BatchID
 			if len(r.pending) == maxOutboxSize {
@@ -353,7 +400,7 @@ func (r *Reporter) rewriteLocked() error {
 			}
 		}
 		activity := item.Activity
-		data, marshalErr := json.Marshal(outboxRecord{Type: "activity", BatchID: item.BatchID, Activity: &activity})
+		data, marshalErr := json.Marshal(outboxRecord{Type: "activity", BatchID: item.BatchID, AccountID: item.AccountID, Activity: &activity})
 		if marshalErr != nil {
 			_ = file.Close()
 			return marshalErr
